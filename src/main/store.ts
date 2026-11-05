@@ -7,7 +7,8 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { parseProfile, serializeProfile } from '@shared/profile/markdown';
 import { touch } from '@shared/profile/model';
-import type { ProfileSummary, Snapshot } from '@shared/api';
+import type { ProfileSummary, RuleSetSummary, Snapshot } from '@shared/api';
+import { parseRuleSet, serializeRuleSet, type RuleSet } from '@shared/rules';
 import type { Settings, TasteProfile } from '@shared/types';
 
 const MAX_SNAPSHOTS = 50;
@@ -24,6 +25,7 @@ export function defaultSettings(userData: string): Settings {
     activeGeneralProfile: null,
     generalByLanguage: {},
     activeProjectProfile: null,
+    rulesByProject: {},
     mode: 'assistant',
     dictionary: [],
     theme: 'system',
@@ -197,6 +199,57 @@ export class Store {
 
   async profilesDir(): Promise<string> {
     return this.dir();
+  }
+
+  // ---- rule sets: <profilesDir>/rules/<id>.md, history in rules/.history/<id>/
+
+  private async rulesDir(): Promise<string> {
+    const d = join(await this.dir(), 'rules');
+    await mkdir(d, { recursive: true });
+    return d;
+  }
+
+  async listRuleSets(): Promise<RuleSetSummary[]> {
+    const dir = await this.rulesDir();
+    const out: RuleSetSummary[] = [];
+    for (const f of await readdir(dir)) {
+      if (!f.endsWith('.md')) continue;
+      try {
+        const s = parseRuleSet(await readFile(join(dir, f), 'utf8'), f.slice(0, -3));
+        out.push({ id: f.slice(0, -3), name: s.name, language: s.language, rules: s.rules.length, updated: s.updated });
+      } catch {
+        /* skip */
+      }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async getRuleSet(id: string): Promise<RuleSet> {
+    const s = parseRuleSet(await readFile(join(await this.rulesDir(), `${safeId(id)}.md`), 'utf8'), id);
+    return { ...s, id };
+  }
+
+  async saveRuleSet(set: RuleSet, reason: string): Promise<RuleSet> {
+    const dir = await this.rulesDir();
+    const id = safeId(set.id);
+    const file = join(dir, `${id}.md`);
+    if (existsSync(file)) {
+      const hd = join(dir, '.history', id);
+      await mkdir(hd, { recursive: true });
+      const at = new Date().toISOString();
+      await writeFile(join(hd, `${at.replace(/[:.]/g, '-')} ${reason.replace(/[^\w -]/g, '').slice(0, 40)}.md`), await readFile(file, 'utf8'));
+    }
+    const saved = touch({ ...set, id });
+    await atomicWrite(file, serializeRuleSet(saved));
+    return saved;
+  }
+
+  async removeRuleSet(id: string): Promise<void> {
+    const file = join(await this.rulesDir(), `${safeId(id)}.md`);
+    if (existsSync(file)) {
+      await this.saveRuleSet(await this.getRuleSet(id), 'before delete');
+      await rm(file);
+    }
   }
 }
 

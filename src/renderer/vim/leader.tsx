@@ -55,6 +55,13 @@ export function useLeaderTree(): LeaderNode[] {
         ],
       },
       {
+        key: 'r', label: 'rules', children: [
+          { key: 't', label: 'toggle a rule set for this project', run: ask(':rule ', 'rule') },
+          { key: 'e', label: 'edit rule sets', run: cmd('rules') },
+          { key: 'n', label: 'next rule violation', run: cmd('issue next') },
+        ],
+      },
+      {
         key: 'd', label: 'document', children: [
           { key: 't', label: 'document type', run: ask(':set doctype=', 'doctype') },
           { key: 'r', label: 'recheck', run: cmd('check') },
@@ -64,6 +71,7 @@ export function useLeaderTree(): LeaderNode[] {
         key: 'g', label: 'go to view', children: [
           { key: 'w', label: 'write', run: cmd('write') },
           { key: 'p', label: 'profiles', run: cmd('profiles') },
+          { key: 'r', label: 'rules', run: cmd('rules') },
           { key: 'e', label: 'extract', run: cmd('extract') },
           { key: 'b', label: 'blend', run: cmd('blend') },
           { key: 's', label: 'settings', run: cmd('settings') },

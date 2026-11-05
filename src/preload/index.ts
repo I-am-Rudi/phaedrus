@@ -5,7 +5,8 @@ import { channel, type Backend } from '@shared/api';
 const groups: { [K in keyof Backend]: (keyof Backend[K] & string)[] } = {
   settings: ['get', 'set'],
   profiles: ['list', 'get', 'save', 'remove', 'applyEvent', 'history', 'readSnapshot', 'rollback', 'exportTo', 'importFrom', 'reveal'],
-  coach: ['extract', 'diff', 'checkStyle', 'editFeedback', 'blendConflicts'],
+  rules: ['list', 'get', 'save', 'remove', 'applyEvent', 'exportTo', 'importFrom'],
+  coach: ['extract', 'extractRules', 'diff', 'checkStyle', 'editFeedback', 'blendConflicts'],
   grammar: ['check'],
   providers: ['status', 'login', 'test'],
   files: ['pickSources', 'openDocument', 'saveDocument'],

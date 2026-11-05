@@ -3,7 +3,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell } from 'electron';
 import { channel, type Backend } from '@shared/api';
-import { checkStyle, editFeedback, extractProfile, findBlendConflicts } from '@shared/coach';
+import { checkStyle, editFeedback, extractProfile, extractRules, findBlendConflicts } from '@shared/coach';
+import { applyRuleEvent, parseRuleSet, serializeRuleSet } from '@shared/rules';
 import { diffProfiles } from '@shared/profile/diff';
 import { exportBundle, exportMarkdown, importProfile } from '@shared/profile/exchange';
 import { applyEvent } from '@shared/profile/feedback';
@@ -73,7 +74,36 @@ const backend: Backend = {
       await shell.openPath(await store.profilesDir());
     },
   },
+  rules: {
+    list: () => store.listRuleSets(),
+    get: (id) => store.getRuleSet(id),
+    save: (s, reason) => store.saveRuleSet(s, reason),
+    remove: (id) => store.removeRuleSet(id),
+    async applyEvent(setId, ev) {
+      const cur = await store.getRuleSet(setId);
+      const next = applyRuleEvent(cur, ev);
+      return next === cur ? cur : store.saveRuleSet(next, `auto ${ev.type}`);
+    },
+    async exportTo(id) {
+      const s = await store.getRuleSet(id);
+      const { canceled, filePath } = await dialog.showSaveDialog(win(), { defaultPath: `${s.id}.md`, filters: [{ name: 'Markdown', extensions: ['md'] }] });
+      if (canceled || !filePath) return null;
+      await writeFile(filePath, serializeRuleSet(s));
+      return filePath;
+    },
+    async importFrom() {
+      const { canceled, filePaths } = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters: [{ name: 'Rules', extensions: ['md'] }] });
+      const f = filePaths[0];
+      if (canceled || !f) return null;
+      const s = parseRuleSet(await readFile(f, 'utf8'), basename(f).replace(/\.md$/, ''));
+      const taken = new Set((await store.listRuleSets()).map((x) => x.id));
+      let id = s.id;
+      for (let i = 2; taken.has(id); i++) id = `${s.id}-${i}`;
+      return store.saveRuleSet({ ...s, id }, 'import');
+    },
+  },
   coach: {
+    extractRules: async (docs, takenIds) => extractRules(await llm(), docs, { takenIds }),
     async extract(sources, name, kind, language) {
       const takenIds = (await store.listProfiles()).map((p) => p.id);
       return extractProfile(await llm(), sources, { name, kind, language, takenIds });

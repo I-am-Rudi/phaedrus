@@ -29,7 +29,7 @@ function toContent(text: string) {
   };
 }
 
-const CATEGORY_LABEL: Record<Category, string> = { spelling: 'Spelling', grammar: 'Grammar', style: 'Style' };
+const CATEGORY_LABEL: Record<Category, string> = { spelling: 'Spelling', grammar: 'Grammar', style: 'Style', rules: 'Rules' };
 
 export function WriteView() {
   const app = useApp();
@@ -37,7 +37,7 @@ export function WriteView() {
   const [doc, setDoc] = useState<{ path: string | null; name: string }>({ path: null, name: 'untitled.md' });
   const [dirty, setDirty] = useState(false);
   const [docType, setDocType] = useState('paper');
-  const [filters, setFilters] = useState<Record<Category, boolean>>({ spelling: true, grammar: true, style: true });
+  const [filters, setFilters] = useState<Record<Category, boolean>>({ spelling: true, grammar: true, style: true, rules: true });
   const [selected, setSelected] = useState<string | null>(null);
   /** Suggestion shown in place, under its underline. */
   const [popover, setPopover] = useState<string | null>(null);
@@ -109,6 +109,10 @@ export function WriteView() {
       backend,
       settings: () => live.current.settings,
       profiles: () => ({ general: live.current.general, project: live.current.project }),
+      ruleSets: () => liveApp.current.ruleSets,
+      onRuleEvent: (setId, ev) => {
+        void liveApp.current.backend.rules.applyEvent(setId, ev).then((s) => liveApp.current.ruleSetChanged(s));
+      },
       docType: () => live.current.docType,
       language: () => live.current.language,
       onProfile: (p) => live.current.profileChanged(p),
@@ -127,7 +131,8 @@ export function WriteView() {
 
   // Context changes that invalidate style results.
   const profileKey = `${general?.id}:${general?.moves.map((m) => m.id + m.description + m.enabled + m.scope.docTypes + m.scope.sections).join()}|${project?.id}:${project?.moves.map((m) => m.id + m.description + m.enabled).join()}`;
-  useEffect(() => checker?.invalidate('style'), [checker, profileKey, docType]);
+  const rulesKey = app.ruleSets.map((s) => s.id + s.rules.map((r) => r.id + r.description + r.enabled + r.notes.length + r.scope.sections).join()).join('|');
+  useEffect(() => checker?.invalidate('style'), [checker, profileKey, rulesKey, docType]);
   const language = app.language;
   useEffect(() => checker?.invalidate('grammar'), [checker, settings.grammar.engine, language, settings.grammar.harperDialect, settings.dictionary.length]);
   useEffect(() => checker?.setMode(settings.mode), [checker, settings.mode]);
@@ -142,7 +147,7 @@ export function WriteView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checker, version, settings.mode]);
 
-  const counts = { spelling: 0, grammar: 0, style: 0 } as Record<Category, number>;
+  const counts = { spelling: 0, grammar: 0, style: 0, rules: 0 } as Record<Category, number>;
   for (const e of ordered) counts[e.category]++;
   const visible = ordered.filter((e) => filters[e.category]);
   orderedRef.current = visible;
@@ -441,6 +446,7 @@ export function WriteView() {
           <option value="">No project profile</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        <RulesPicker />
         <span className="tag" title={project?.language ? `Language of the project profile ${project.name}` : 'Default language from Settings'}>{languageLabel(language)}</span>
         <div className="seg" role="tablist">
           <button className={settings.mode === 'assistant' ? 'on' : ''} onClick={() => setMode('assistant')}>Assistant</button>
@@ -520,7 +526,7 @@ export function WriteView() {
                 {app.generalMismatch.name} is a {languageLabel(app.generalMismatch.language ?? '')} profile and is not used for {languageLabel(app.language)} text.
               </div>
             )}
-            {!general && !project && (
+            {!general && !project && !app.ruleSets.length && (
               <div className="small muted">
                 No taste profile selected, so only spelling and grammar are checked.{' '}
                 <a href="#" onClick={(e) => (e.preventDefault(), app.go('extract'))}>Extract one</a>
@@ -584,8 +590,8 @@ function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord, inlin
   const s = e.s;
   const hint = hintFor(e.move.hintLevel, s.hints, e.move.title);
   return (
-    <div id={domId} className={`card style${selected ? ' selected' : ''}`} onClick={onSelect}>
-      <div className="kind">Style <span>·</span> <span style={{ textTransform: 'none', letterSpacing: 0 }}>{e.move.title}</span></div>
+    <div id={domId} className={`card ${e.category}${selected ? ' selected' : ''}`} onClick={onSelect}>
+      <div className="kind">{e.category === 'rules' ? 'Rule' : 'Style'} <span>·</span> <span style={{ textTransform: 'none', letterSpacing: 0 }}>{e.move.title}</span></div>
       {mode === 'assistant' ? (
         <>
           <div className="msg">{s.issue}</div>
@@ -706,5 +712,32 @@ function InlinePopover({ entry, anchor, editorView, tick, onClose, children }: {
     >
       {children}
     </div>
+  );
+}
+
+/** Choose which rule sets apply to the current project. */
+function RulesPicker() {
+  const app = useApp();
+  const options = app.ruleSummaries.filter((r) => languageMatches(r.language, app.language));
+  const active = new Set(app.activeRuleIds);
+  const n = options.filter((o) => active.has(o.id)).length;
+  return (
+    <details className="rules-picker">
+      <summary className="btn ghost small" title="Rule sets checked for this project">Rules{n ? ` (${n})` : ''}</summary>
+      <div className="rules-menu">
+        {options.map((o) => (
+          <label key={o.id} className="inline">
+            <input
+              type="checkbox"
+              checked={active.has(o.id)}
+              onChange={(e) => void app.setActiveRules(e.target.checked ? [...app.activeRuleIds, o.id] : app.activeRuleIds.filter((x) => x !== o.id))}
+            />
+            {o.name} <span className="small muted">{o.rules}</span>
+          </label>
+        ))}
+        {!options.length && <span className="small muted">No rule sets in {languageLabel(app.language)} yet.</span>}
+        <a href="#" className="small" onClick={(e) => (e.preventDefault(), app.go('rules'))}>Edit rule sets</a>
+      </div>
+    </details>
   );
 }

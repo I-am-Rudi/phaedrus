@@ -293,3 +293,12 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .cheat-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); margin-top: 2px; }
 .cheat-row { display: grid; grid-template-columns: 112px 1fr; gap: 8px; }
 .cheat-keys { font-family: ui-monospace, monospace; color: var(--accent-ink); }
+
+/* ---------- rules ---------- */
+.issue-rules { text-decoration-color: var(--rules); text-decoration-style: dashed; }
+.issue-selected.issue-rules { background: var(--rules-soft); }
+.card.rules { border-left-color: var(--rules); }
+.rules-picker { position: relative; }
+.rules-picker > summary { list-style: none; }
+.rules-picker > summary::-webkit-details-marker { display: none; }
+.rules-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 14; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 3px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 220px; }

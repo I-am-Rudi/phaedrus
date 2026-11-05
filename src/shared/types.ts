@@ -1,6 +1,6 @@
 // Core data model shared by the main process, the renderer and the tests.
 
-export type Category = 'spelling' | 'grammar' | 'style';
+export type Category = 'spelling' | 'grammar' | 'style' | 'rules';
 export type Mode = 'assistant' | 'teacher';
 
 /** How explicit teacher-mode hints are for a move. 3 = most explicit, 0 = silent. */
@@ -106,7 +106,10 @@ export interface GrammarIssue {
 
 /** A style suggestion from the LLM, anchored by quoted text rather than offsets. */
 export interface StyleSuggestion {
+  /** The style move this is about ("" for a rule violation). */
   moveId: string;
+  /** "<rule set id>/<rule id>" for a rule violation. */
+  ruleKey?: string;
   quote: string;
   issue: string;
   rewrite: string;
@@ -163,6 +166,8 @@ export interface Settings {
   /** Chosen general profile per base language ("en", "de", ...). */
   generalByLanguage: Record<string, string>;
   activeProjectProfile: string | null;
+  /** Active rule sets per project profile id ("" when no project is active). */
+  rulesByProject: Record<string, string[]>;
   mode: Mode;
   dictionary: string[];
   /** Colour theme id (see themes.ts) or "system". */
