@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, type ViewId } from '../state';
 
-const VIEW_ORDER: ViewId[] = ['write', 'profiles', 'rules', 'extract', 'blend', 'settings'];
+const VIEW_ORDER: ViewId[] = ['write', 'profiles', 'rules', 'blend', 'settings'];
 
 export function cycleView(current: ViewId, dir: 1 | -1): ViewId {
   const i = VIEW_ORDER.indexOf(current);

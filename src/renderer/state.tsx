@@ -4,7 +4,7 @@ import { baseLanguage, languageMatches } from '@shared/language';
 import type { RuleSet } from '@shared/rules';
 import type { Settings, TasteProfile } from '@shared/types';
 
-export type ViewId = 'write' | 'profiles' | 'rules' | 'extract' | 'blend' | 'settings';
+export type ViewId = 'write' | 'profiles' | 'rules' | 'blend' | 'settings';
 
 export interface AskButton {
   label: string;
@@ -333,7 +333,7 @@ export function AppProvider({ backend, events, mock, initial, children }: { back
       if (!trimmed) return;
       const [name = '', ...rest] = trimmed.split(/\s+/);
       const arg = rest.join(' ');
-      const views: Record<string, ViewId> = { write: 'write', profiles: 'profiles', rules: 'rules', extract: 'extract', blend: 'blend', settings: 'settings' };
+      const views: Record<string, ViewId> = { write: 'write', profiles: 'profiles', rules: 'rules', blend: 'blend', settings: 'settings' };
       const own = lookup(name);
       if (own) return own(arg);
       if (views[name]) return go(views[name]!);
