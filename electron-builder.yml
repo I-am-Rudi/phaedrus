@@ -1,0 +1,17 @@
+appId: dev.stylecoach.app
+productName: stylecoach
+directories:
+  output: dist
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - node_modules/harper.js/**
+linux:
+  target: [AppImage, deb]
+  category: Office
+mac:
+  target: dmg
+  category: public.app-category.productivity
+win:
+  target: nsis
