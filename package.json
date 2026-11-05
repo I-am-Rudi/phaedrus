@@ -1,5 +1,5 @@
 {
-  "name": "gorgias",
+  "name": "phaedrus",
   "version": "0.1.0",
   "description": "A writing assistant that checks spelling and grammar and coaches your style toward authors you choose, driven by an editable taste profile.",
   "license": "MIT",
@@ -23,6 +23,7 @@
     "@tiptap/starter-kit": "^3.32.3",
     "fflate": "^0.8.3",
     "harper.js": "^3.0.0",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "yaml": "^2.9.1"

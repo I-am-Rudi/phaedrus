@@ -3,7 +3,7 @@
 // Normal mode: counts, motions (h j k l w b e W B E 0 ^ $ gg G { } f F t T ; , n N),
 // operators (d c y with a motion, a text object iw aw iW aW is as ip ap, or doubled),
 // x X D C s S r J ~ p P u Ctrl-r i a I A o O v V / ? : Ctrl-d Ctrl-u zz.
-// Gorgias keys: ]s [s next/previous issue, z= open it (then 1-9 to pick),
+// Phaedrus keys: ]s [s next/previous issue, z= open it (then 1-9 to pick),
 // zg add word, za accept, zd dismiss, zr not for me, zc check my revision,
 // Ctrl-w l suggestion panel, gt gT next/previous view.
 

@@ -1,5 +1,5 @@
-appId: dev.gorgias.app
-productName: Gorgias
+appId: dev.phaedrus.app
+productName: Phaedrus
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
   output: dist
@@ -8,6 +8,7 @@ files:
   - package.json
 asarUnpack:
   - node_modules/harper.js/**
+  - node_modules/pdfjs-dist/**
 publish:
   provider: github
   releaseType: draft

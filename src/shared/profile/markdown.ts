@@ -23,7 +23,7 @@ const USER_MARK = 'me';
 
 export function serializeProfile(p: TasteProfile): string {
   const front: Record<string, unknown> = {
-    gorgias: FORMAT_VERSION,
+    phaedrus: FORMAT_VERSION,
     id: p.id,
     name: p.name,
     kind: p.kind,

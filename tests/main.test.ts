@@ -12,7 +12,7 @@ const plainSecrets = { available: () => true, encrypt: (s: string) => Buffer.fro
 
 let dir: string;
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'gorgias-test-'));
+  dir = await mkdtemp(join(tmpdir(), 'phaedrus-test-'));
 });
 
 describe('store', () => {

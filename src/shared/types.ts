@@ -129,6 +129,8 @@ export interface SourceDoc {
   name: string;
   author?: string;
   text: string;
+  /** Shown next to the source, e.g. when a scanned PDF could not be read. */
+  warning?: string;
 }
 
 export interface BlendInput {

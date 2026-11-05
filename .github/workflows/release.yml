@@ -73,7 +73,7 @@ jobs:
       - name: Keep the installers as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gorgias-${{ runner.os }}
+          name: phaedrus-${{ runner.os }}
           path: |
             dist/*.dmg
             dist/*.zip

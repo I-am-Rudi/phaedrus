@@ -243,6 +243,7 @@ function ExtractRules({ takenIds, onAdd }: { takenIds: string[]; onAdd(rules: Wr
             <input type="text" className="grow" value={d.name} onChange={(e) => setDocs(docs.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))} />
             <button className="btn ghost small" onClick={() => setDocs(docs.filter((_, k) => k !== i))}>Remove</button>
           </div>
+          {d.warning && <div className="small" style={{ color: 'var(--accent-ink)' }}>{d.warning}</div>}
           <textarea rows={4} value={d.text} placeholder="Paste the rules document" onChange={(e) => setDocs(docs.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)))} />
         </div>
       ))}
