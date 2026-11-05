@@ -1,6 +1,7 @@
 // Cheap, deterministic style measurements. Used to describe source authors
 // during extraction and to flag obvious rhythm drift without calling an LLM.
 
+import { proseOf } from './latex';
 import type { StyleMetrics } from './types';
 
 const HEDGES = [
@@ -56,7 +57,8 @@ function std(xs: number[]): number {
 
 const round = (x: number, d = 2) => Math.round(x * 10 ** d) / 10 ** d;
 
-export function computeMetrics(text: string): StyleMetrics {
+export function computeMetrics(raw: string): StyleMetrics {
+  const text = proseOf(raw);
   const paragraphs = splitParagraphs(text);
   const sentences = paragraphs.flatMap(splitSentences);
   const sentenceLengths = sentences.map((s) => words(s).length).filter((n) => n > 0);

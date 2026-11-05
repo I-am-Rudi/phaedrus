@@ -3,6 +3,7 @@
 // caller passes an `LLM` that turns a system+user prompt into text.
 
 import { extractJson, num, str } from './json';
+import { hasLatex, maskLatex, proseOf, rewriteKeepsLatex } from './latex';
 import { computeMetrics, metricDrift } from './metrics';
 import { newMove, newProfile } from './profile/model';
 import { findQuote } from './spans';
@@ -52,10 +53,12 @@ export function sampleSources(sources: SourceDoc[], budget = SOURCE_BUDGET_CHARS
 const EXTRACT_SYSTEM = `You are a writing teacher who analyses prose style precisely.
 You describe what authors do at the level of concrete, teachable moves: how sentences open and end, rhythm, how claims are qualified, how examples are introduced, how paragraphs are built, word choice, how the reader is addressed.
 You never describe topic or content, only how the writing works.
+Sources may be scientific texts converted from LaTeX: inline math stays as $...$ and displayed equations appear as [equation]. Moves about how equations, symbols and references are introduced in the prose are welcome; never describe the mathematics itself.
 You answer with JSON only.`;
 
 export function extractionPrompt(sources: SourceDoc[], metrics: StyleMetrics): string {
-  const blocks = sampleSources(sources)
+  const prose = sources.map((s) => (hasLatex(s.text) ? { ...s, text: maskLatex(s.text, 'prose').text } : s));
+  const blocks = sampleSources(prose)
     .map((s, i) => `<source index="${i + 1}" title="${esc(s.name)}"${s.author ? ` author="${esc(s.author)}"` : ''}>\n${s.text}\n</source>`)
     .join('\n\n');
   return `Study these sources and extract the style moves that make this writing what it is.
@@ -135,6 +138,7 @@ export async function extractProfile(
 const CHECK_SYSTEM = `You are a style coach. You compare one paragraph of the user's writing with a style profile and point out where it drifts from the moves in that profile.
 You only comment on style. Never comment on spelling, grammar, punctuation or the content of the argument.
 Only flag a passage when applying a move would clearly improve it. A paragraph that already fits gets no suggestions.
+The text may contain LaTeX or Markdown math. Treat math ($...$, \\(...\\), \\[...\\], equation environments), commands (\\cite, \\ref, \\eqref, \\label, \\emph, ...) and comments as fixed: never comment on them, never change them, and copy them character for character into any rewrite whose quote contains them. Never quote a passage that consists only of markup.
 You answer with JSON only.`;
 
 export interface StyleCheckRequest {
@@ -192,7 +196,8 @@ At most ${req.limit ?? 3} suggestions, most important first. "quote" must match 
 }
 
 export async function checkStyle(llm: LLM, req: StyleCheckRequest): Promise<StyleSuggestion[]> {
-  if (!req.moves.length || req.paragraph.trim().length < 20) return [];
+  // Skip paragraphs that are mostly equations or markup.
+  if (!req.moves.length || proseOf(req.paragraph).replace(/\bX\b/g, '').trim().length < 20) return [];
   const reply = await llm.complete({ system: CHECK_SYSTEM, prompt: styleCheckPrompt(req), tier: 'fast', maxTokens: 1500 });
   return parseSuggestions(reply, req);
 }
@@ -209,6 +214,9 @@ export function parseSuggestions(reply: string, req: Pick<StyleCheckRequest, 'pa
     const range = findQuote(req.paragraph, quote);
     if (!range) continue; // the model misquoted; drop rather than guess
     const rewrite = str(s.rewrite);
+    const quoted = req.paragraph.slice(range.from, range.to);
+    // A rewrite must keep every equation and reference of the passage verbatim.
+    if (!rewriteKeepsLatex(quoted, rewrite)) continue;
     out.push({
       moveId,
       quote: req.paragraph.slice(range.from, range.to),
@@ -225,6 +233,7 @@ export function parseSuggestions(reply: string, req: Pick<StyleCheckRequest, 'pa
 
 const FEEDBACK_SYSTEM = `You are a style coach giving feedback on a revision the user just made.
 Judge only whether the revision applies the style move. Be brief, concrete and honest; do not praise a revision that misses.
+The text may contain LaTeX; judge the prose around it, not the markup.
 You answer with JSON only.`;
 
 export interface EditFeedbackRequest {

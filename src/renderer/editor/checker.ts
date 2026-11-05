@@ -11,6 +11,7 @@ import type { Editor } from '@tiptap/core';
 import type { Backend } from '@shared/api';
 import { sectionTitle, type DocBlock } from '@shared/document';
 import { effectiveMoves, ownerOf } from '@shared/profile/model';
+import { proseOf } from '@shared/latex';
 import { findQuote, hash } from '@shared/spans';
 import type { EditFeedback, GrammarIssue, Mode, Settings, StyleMove, StyleSuggestion, TasteProfile } from '@shared/types';
 import { blocks, getIssues, issuesKey, type BlockInfo, type IssueMeta, type IssueRange } from './issues';
@@ -52,6 +53,8 @@ export interface CheckerDeps {
 
 type Phase = 'idle' | 'busy' | 'error';
 const MIN_STYLE_CHARS = 60;
+/** Reference abbreviations common in scientific writing; never flagged as misspelled. */
+const BUILTIN_WORDS = ['eq', 'eqs', 'fig', 'figs', 'sec', 'secs', 'ref', 'refs', 'tab', 'app', 'thm', 'lem', 'prop', 'def', 'cor', 'ch', 'cf'];
 
 export class Checker {
   entries = new Map<string, Entry>();
@@ -210,7 +213,7 @@ export class Checker {
   private applyGrammar(text: string, index: number, issues: GrammarIssue[], key: string) {
     const b = this.locate(text, index);
     if (!b) return;
-    const dict = new Set(this.deps.settings().dictionary.map((w) => w.toLowerCase()));
+    const dict = new Set([...BUILTIN_WORDS, ...this.deps.settings().dictionary.map((w) => w.toLowerCase())]);
     const items: IssueRange[] = [];
     for (const issue of issues) {
       if (issue.category === 'spelling' && dict.has(issue.text.toLowerCase())) continue;
@@ -251,7 +254,7 @@ export class Checker {
       const db: DocBlock = b.type === 'heading' ? { type: 'heading', level: b.level, text: b.text } : { type: 'paragraph', text: b.text };
       const title = sectionTitle(db);
       if (title) section = title;
-      if (b.type === 'heading' || b.text.trim().length < MIN_STYLE_CHARS || busyBlocks.has(b.index)) continue;
+      if (b.type === 'heading' || proseOf(b.text).trim().length < MIN_STYLE_CHARS || busyBlocks.has(b.index)) continue;
       const moves = effectiveMoves(general, project, { docType, section });
       const movesKey = moves.map((m) => `${m.id}:${m.title}:${m.description}:${m.notes.length}`).join('|');
       const key = hash([b.text, docType, section, movesKey].join('\u0000'));

@@ -5,14 +5,17 @@
 
 import { Dialect, LocalLinter, SuggestionKind } from 'harper.js';
 import { binaryInlined } from 'harper.js/binaryInlined';
+import { hasLatex, mapBack, maskLatex } from '@shared/latex';
 import { codePointToUtf16, findQuote } from '@shared/spans';
 import type { GrammarIssue, Settings } from '@shared/types';
 
 export async function checkGrammar(text: string, cfg: Settings['grammar']): Promise<GrammarIssue[]> {
-  if (!text.trim()) return [];
-  if (cfg.engine === 'languagetool') return languageTool(text, cfg);
-  if (cfg.engine === 'harper') return harper(text, cfg.harperDialect);
-  return [];
+  if (!text.trim() || cfg.engine === 'none') return [];
+  const run = (t: string) => (cfg.engine === 'languagetool' ? languageTool(t, cfg) : harper(t, cfg.harperDialect));
+  if (!hasLatex(text)) return run(text);
+  // Check the prose with LaTeX masked out, then put findings back on the original.
+  const masked = maskLatex(text);
+  return mapBack(masked, text, await run(masked.text));
 }
 
 // ---------------------------------------------------------------- LanguageTool

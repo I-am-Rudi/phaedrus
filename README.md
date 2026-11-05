@@ -154,6 +154,23 @@ Style checks use the fast model, one paragraph at a time, with the neighbouring 
 
 Words in the Settings dictionary are never flagged as misspelled.
 
+## LaTeX and Markdown math
+
+All checks treat LaTeX as markup, not prose. Before spelling and grammar run, each paragraph is turned into plain prose with a map back to the original characters:
+
+| In the text | Checked as |
+|---|---|
+| `$..$`, `\\(..\\)`, `$$..$$`, `\\[..\\]`, `equation`/`align`/`gather`/`multline` environments | the placeholder word `X` |
+| `\\emph{..}`, `\\textbf{..}`, `\\section{..}`, `\\caption{..}` and similar | their argument |
+| `\\ref`, `\\eqref`, `\\cref` | `1` |
+| `\\citet`, `\\textcite` | an author name |
+| `\\cite`, `\\label`, `\\footnote`, other commands, `%` comments, `verbatim`/`tikzpicture`/`tabular` environments | removed |
+| `\\%` `\\$` `~` ` `` ` `''` | `%` `$` space `"` `"` |
+
+Findings that touch a placeholder or markup are dropped; the rest are placed on the original text. A `$` only opens math under pandoc's rule (no space after the opening `$`, none before the closing one, no digit right after it), so "costs $5 and $10" stays prose. Eq, Fig, Sec, Ref and similar abbreviations are never flagged.
+
+Style checks see the original paragraph and are told to leave math, commands and comments untouched. A suggestion whose rewrite does not keep every equation and reference of the quoted passage verbatim is discarded, and paragraphs that are mostly equations are skipped. Metrics are measured on the prose, and extraction sources keep inline math but show displayed equations as `[equation]`.
+
 ## Documents
 
 The editor opens and saves `.md`, `.txt` and `.tex` as plain text: blocks separated by blank lines, `#` lines as headings, single line breaks kept. Formatting markup stays as literal text. `Ctrl/Cmd+O` opens, `Ctrl/Cmd+S` saves.

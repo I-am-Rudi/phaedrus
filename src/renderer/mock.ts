@@ -4,6 +4,7 @@
 
 import type { Backend, ProfileSummary, Snapshot } from '@shared/api';
 import { checkStyle, editFeedback, extractProfile, findBlendConflicts, type LLM } from '@shared/coach';
+import { hasLatex, mapBack, maskLatex } from '@shared/latex';
 import { computeMetrics, splitSentences, words } from '@shared/metrics';
 import { diffProfiles } from '@shared/profile/diff';
 import { exportBundle, exportMarkdown, importProfile } from '@shared/profile/exchange';
@@ -126,6 +127,12 @@ const fakeLLM: LLM = {
 
 let harperLinter: Promise<any> | null = null;
 async function harperCheck(text: string): Promise<GrammarIssue[]> {
+  if (!hasLatex(text)) return harperRaw(text);
+  const masked = maskLatex(text);
+  return mapBack(masked, text, await harperRaw(masked.text));
+}
+
+async function harperRaw(text: string): Promise<GrammarIssue[]> {
   harperLinter ??= (async () => {
     const { LocalLinter, Dialect } = await import('harper.js');
     const { binaryInlined } = await import('harper.js/binaryInlined');
