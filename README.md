@@ -160,12 +160,12 @@ All checks treat LaTeX as markup, not prose. Before spelling and grammar run, ea
 
 | In the text | Checked as |
 |---|---|
-| `$..$`, `\\(..\\)`, `$$..$$`, `\\[..\\]`, `equation`/`align`/`gather`/`multline` environments | the placeholder word `X` |
-| `\\emph{..}`, `\\textbf{..}`, `\\section{..}`, `\\caption{..}` and similar | their argument |
-| `\\ref`, `\\eqref`, `\\cref` | `1` |
-| `\\citet`, `\\textcite` | an author name |
-| `\\cite`, `\\label`, `\\footnote`, other commands, `%` comments, `verbatim`/`tikzpicture`/`tabular` environments | removed |
-| `\\%` `\\$` `~` ` `` ` `''` | `%` `$` space `"` `"` |
+| `$..$`, `\(..\)`, `$$..$$`, `\[..\]`, `equation`/`align`/`gather`/`multline` environments | the placeholder word `X` |
+| `\emph{..}`, `\textbf{..}`, `\section{..}`, `\caption{..}` and similar | their argument |
+| `\ref`, `\eqref`, `\cref` | `1` |
+| `\citet`, `\textcite` | an author name |
+| `\cite`, `\label`, `\footnote`, other commands, `%` comments, `verbatim`/`tikzpicture`/`tabular` environments | removed |
+| `\%` `\$` `~` ` `` ` `''` | `%` `$` space `"` `"` |
 
 Findings that touch a placeholder or markup are dropped; the rest are placed on the original text. A `$` only opens math under pandoc's rule (no space after the opening `$`, none before the closing one, no digit right after it), so "costs $5 and $10" stays prose. Eq, Fig, Sec, Ref and similar abbreviations are never flagged.
 

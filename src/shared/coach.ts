@@ -139,6 +139,7 @@ const CHECK_SYSTEM = `You are a style coach. You compare one paragraph of the us
 You only comment on style. Never comment on spelling, grammar, punctuation or the content of the argument.
 Only flag a passage when applying a move would clearly improve it. A paragraph that already fits gets no suggestions.
 The text may contain LaTeX or Markdown math. Treat math ($...$, \\(...\\), \\[...\\], equation environments), commands (\\cite, \\ref, \\eqref, \\label, \\emph, ...) and comments as fixed: never comment on them, never change them, and copy them character for character into any rewrite whose quote contains them. Never quote a passage that consists only of markup.
+Write "rewrite" in the language of the paragraph. Write "issue", "explanation" and the hints in English unless the paragraph is in another language, then in that language.
 You answer with JSON only.`;
 
 export interface StyleCheckRequest {
