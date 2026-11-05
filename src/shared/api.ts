@@ -46,6 +46,26 @@ export interface OpenedDocument {
   text: string;
 }
 
+export interface SaveOptions {
+  /** The file's content as last read or written. If the file on disk differs, nothing is written and the result is a conflict. */
+  base?: string;
+  /** Always ask for a path (Save As); `path` is then only the suggestion. */
+  saveAs?: boolean;
+}
+
+export type SaveResult = { path: string } | { conflict: string };
+
+/** Messages from the main process (Electron only; the browser preview has no-ops). */
+export interface AppEvents {
+  /** The open file changed on disk; `text` is null when it was deleted or moved. */
+  onFileChanged(cb: (e: { path: string; text: string | null }) => void): () => void;
+  /** The window is about to close; answer with answerClose. */
+  onCloseRequested(cb: () => void): () => void;
+  /** A command from the application menu (":"-command syntax). */
+  onMenu(cb: (command: string) => void): () => void;
+  answerClose(ok: boolean): void;
+}
+
 export interface Backend {
   settings: {
     get(): Promise<Settings>;
@@ -97,8 +117,15 @@ export interface Backend {
   files: {
     /** Pick source files (.md, .txt, .tex); returns their text. */
     pickSources(): Promise<SourceDoc[]>;
-    openDocument(): Promise<OpenedDocument | null>;
-    saveDocument(path: string | null, text: string): Promise<string | null>;
+    /** With a path, open that file (a leading ~ is the home folder); without, show a file picker. */
+    openDocument(path?: string): Promise<OpenedDocument | null>;
+    /** Null if the user cancelled the save dialog. */
+    saveDocument(path: string | null, text: string, opts?: SaveOptions): Promise<SaveResult | null>;
+    /** Recently opened or saved documents, most recent first. */
+    recent(): Promise<string[]>;
+    forgetRecent(path: string): Promise<string[]>;
+    /** Watch this file for changes made elsewhere (null stops watching). */
+    watch(path: string | null): Promise<void>;
   };
 }
 

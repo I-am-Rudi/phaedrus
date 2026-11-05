@@ -187,4 +187,6 @@ export interface Settings {
   };
   styleDebounceMs: number;
   grammarDebounceMs: number;
+  /** Open the last document again when the app starts. */
+  reopenLastFile: boolean;
 }

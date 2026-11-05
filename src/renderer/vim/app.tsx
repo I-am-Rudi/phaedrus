@@ -99,7 +99,7 @@ const KEYS: [string, [string, string][]][] = [
   ['Everywhere', [
     ['gt gT', 'next, previous view'],
     ['j k gg G Enter', 'move between and activate controls outside the editor; i returns to the editor'],
-    [':', 'command line: :w :e :teacher :assistant :profile NAME :project NAME :set doctype=paper :set novim'],
+    [':', 'command line: :w :saveas :e [file] :e! :recent :teacher :assistant :profile NAME :project NAME :set doctype=paper :set novim'],
     ['?', 'this list'],
   ]],
 ];
@@ -255,7 +255,8 @@ export function CheatSheet() {
     ]],
     ['More', [
       ['Space', 'menu of everything else'],
-      [':w  gt', 'save, next view'],
+      [':w  :e  :recent', 'save, open, open recent'],
+      ['gt', 'next view'],
     ]],
   ];
   return (

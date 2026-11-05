@@ -2,7 +2,7 @@
 // grammar checks, with a rule-based stand-in for the language model. Lets the
 // UI be developed and demoed without Electron or an LLM.
 
-import type { Backend, ProfileSummary, Snapshot } from '@shared/api';
+import type { AppEvents, Backend, ProfileSummary, Snapshot } from '@shared/api';
 import { checkStyle, checkStyleBatch, editFeedback, extractProfile, extractRules, findBlendConflicts, type LLM } from '@shared/coach';
 import { applyRuleEvent, newRule, newRuleSet, parseRuleSet, serializeRuleSet, type RuleSet } from '@shared/rules';
 import { harperDialectFor } from '@shared/language';
@@ -208,6 +208,14 @@ async function harperRaw(text: string): Promise<GrammarIssue[]> {
 
 export function createMockBackend(): Backend {
   const profiles = new Map<string, string>();
+  const docs = new Map<string, string>();
+  let recent: string[] = [];
+  let watched: string | null = null;
+  (globalThis as { __mockExternalEdit?: (name: string, text: string | null) => void }).__mockExternalEdit = (name, text) => {
+    if (text === null) docs.delete(name);
+    else docs.set(name, text);
+    if (name === watched) mockEvents.emit('files:changed', { path: name, text });
+  };
   const ruleSets = new Map<string, RuleSet>([[sampleRules().id, sampleRules()]]);
   const history = new Map<string, { snap: Snapshot; text: string }[]>();
   for (const p of sampleProfiles()) profiles.set(p.id, serializeProfile(p));
@@ -230,6 +238,7 @@ export function createMockBackend(): Backend {
     vimEscape: { sequence: '', timeoutMs: 300, ctrlC: true },
     styleDebounceMs: 1200,
     grammarDebounceMs: 500,
+    reopenLastFile: true,
   };
 
   const get = (id: string) => {
@@ -344,14 +353,64 @@ export function createMockBackend(): Backend {
     },
     files: {
       pickSources: async () => Promise.all((await pickFiles('.md,.txt,.tex', true)).map(async (f) => ({ name: f.name.replace(/\.[^.]+$/, ''), text: await f.text() }))),
-      openDocument: async () => {
+      // The preview keeps "files" in memory by name; window.__mockExternalEdit(name, text)
+      // simulates another program changing one.
+      openDocument: async (path) => {
+        if (path && docs.has(path)) {
+          recent = [path, ...recent.filter((p) => p !== path)];
+          return { path, name: path, text: docs.get(path)! };
+        }
+        if (path) throw new Error(`No such file: ${path}`);
         const [f] = await pickFiles('.md,.txt,.tex', false);
-        return f ? { path: f.name, name: f.name, text: await f.text() } : null;
+        if (!f) return null;
+        const text = await f.text();
+        docs.set(f.name, text);
+        recent = [f.name, ...recent.filter((p) => p !== f.name)];
+        return { path: f.name, name: f.name, text };
       },
-      saveDocument: async (path, text) => {
-        download(path ?? 'untitled.md', text, 'text/plain');
-        return path ?? 'untitled.md';
+      saveDocument: async (path, text, opts = {}) => {
+        let target = path;
+        if (!target || opts.saveAs) {
+          target = window.prompt('Save as', target ?? 'untitled.md');
+          if (!target) return null;
+        } else if (opts.base !== undefined && docs.has(target) && docs.get(target) !== opts.base) {
+          return { conflict: docs.get(target)! };
+        }
+        docs.set(target, text);
+        recent = [target, ...recent.filter((p) => p !== target)];
+        download(target, text, 'text/plain');
+        return { path: target };
+      },
+      recent: async () => recent,
+      forgetRecent: async (path) => (recent = recent.filter((p) => p !== path)),
+      watch: async (path) => {
+        watched = path;
       },
     },
+  };
+}
+
+// ------------------------------------------------------------ app events
+
+type Listener = (...args: any[]) => void;
+const listeners = new Map<string, Set<Listener>>();
+const mockEvents = {
+  emit(name: string, ...args: unknown[]) {
+    for (const cb of listeners.get(name) ?? []) cb(...args);
+  },
+  on(name: string, cb: Listener) {
+    if (!listeners.has(name)) listeners.set(name, new Set());
+    listeners.get(name)!.add(cb);
+    return () => void listeners.get(name)!.delete(cb);
+  },
+};
+
+/** The browser cannot be asked before closing a tab beyond its own generic prompt. */
+export function createMockEvents(): AppEvents {
+  return {
+    onFileChanged: (cb) => mockEvents.on('files:changed', cb),
+    onCloseRequested: (cb) => mockEvents.on('close', cb),
+    onMenu: (cb) => mockEvents.on('menu', cb),
+    answerClose: () => {},
   };
 }

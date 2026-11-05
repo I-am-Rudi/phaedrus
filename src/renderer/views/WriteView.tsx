@@ -1,6 +1,7 @@
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { OpenedDocument } from '@shared/api';
 import { DOC_TYPES, parseDocumentFull, serializeDocument, type DocBlock } from '@shared/document';
 import { baseLabel, baseLanguage, harperDialectFor, languageLabel, languageMatches } from '@shared/language';
 import { hintFor } from '@shared/profile/feedback';
@@ -14,10 +15,11 @@ import { SAMPLE_DOCUMENT } from '../sample';
 import { errorText, useApp } from '../state';
 
 /** Whitespace around the blocks of the open file, kept so it saves back unchanged. */
-type Frame = { leading: string; trailing: string };
+type Frame = { leading: string; trailing: string; crlf: boolean };
 
 function toContent(text: string, name = '') {
   const parsed = parseDocumentFull(text, name);
+  const crlf = /\r\n/.test(text);
   const doc = {
     type: 'doc',
     content: parsed.blocks.map((b) =>
@@ -33,7 +35,16 @@ function toContent(text: string, name = '') {
           },
     ),
   };
-  return { doc, frame: { leading: parsed.leading, trailing: parsed.trailing || '\n' } as Frame, latex: parsed.latex };
+  return { doc, frame: { leading: parsed.leading, trailing: parsed.trailing, crlf } as Frame, latex: parsed.latex };
+}
+
+/** The element that scrolls the editor page. */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY;
+    if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+  }
+  return null;
 }
 
 const CATEGORY_LABEL: Record<Category, string> = { spelling: 'Spelling', grammar: 'Grammar', style: 'Style', rules: 'Rules' };
@@ -57,7 +68,14 @@ export function WriteView() {
   live.current = { settings, general, project, docType, language: app.language, profileChanged: app.profileChanged };
 
   const checkerRef = useRef<Checker | null>(null);
-  const frameRef = useRef<Frame>({ leading: '', trailing: '\n' });
+  const frameRef = useRef<Frame>({ leading: '', trailing: '\n', crlf: false });
+  const diskRef = useRef<string | null>(null);
+  const baselineRef = useRef<string>('');
+  const savingRef = useRef<string | null>(null);
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
+  const docRef = useRef(doc);
+  docRef.current = doc;
   const asideRef = useRef<HTMLElement>(null);
   const orderedRef = useRef<Entry[]>([]);
   const selectedRef = useRef<string | null>(null);
@@ -102,9 +120,22 @@ export function WriteView() {
       }),
     ],
     content: toContent(mock ? SAMPLE_DOCUMENT : '').doc,
-    onUpdate: () => setDirty(true),
+    onUpdate: ({ editor: ed }) => {
+      // Dirty means "differs from the file", so undoing back to it clears the mark.
+      if (ed.isDestroyed) return;
+      const d = serializeRef.current() !== baselineRef.current;
+      dirtyRef.current = d;
+      setDirty(d);
+    },
   });
   editorRef.current = editor;
+  const serializeRef = useRef<() => string>(() => '');
+  serializeRef.current = serializeCurrent;
+  // Baseline for the starting document (the sample in the preview, empty otherwise).
+  useEffect(() => {
+    if (editor) baselineRef.current = serializeCurrent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
   useEffect(() => {
     if (editor) vim.attach(editor);
     vim.setEnabled(settings.vim);
@@ -362,7 +393,10 @@ export function WriteView() {
     () =>
       app.registerCommands({
         w: () => void save(),
-        e: () => void open(),
+        saveas: (arg) => void save(true, arg.trim() || undefined),
+        e: (arg) => void open(arg.trim() || undefined),
+        'e!': () => void reloadFromDisk(),
+        recent: () => void openRecent(),
         check: () => checker?.invalidate('all'),
         issue: (arg) => {
           const action = arg.trim() as IssueAction;
@@ -382,50 +416,218 @@ export function WriteView() {
     if (popover && checker && !checker.entries.has(popover)) setPopover(null);
   }, [popover, checker, version]);
 
-  async function open() {
-    try {
-      const d = await backend.files.openDocument();
-      if (!d || !editor) return;
-      const loaded = toContent(d.text, d.name);
-      frameRef.current = loaded.frame;
-      editor.commands.setContent(loaded.doc, { emitUpdate: false });
-      setDoc({ path: d.path, name: d.name });
-      setDirty(false);
-      if (loaded.latex) setDocType('paper');
-      checker?.reset();
-    } catch (e) {
-      app.notify(errorText(e));
-    }
-  }
+  // ------------------------------------------------------------ files
+  // diskRef: the file's content as last read or written (null: untitled or gone).
+  // baselineRef: the editor's serialized text at that moment; dirty = text differs.
 
-  async function save() {
-    if (!editor) return;
+  function serializeCurrent(): string {
+    if (!editor) return '';
     const text = serializeDocument(
       blocks(editor.state.doc).map((b): DocBlock =>
         b.type === 'heading' ? { type: 'heading', level: b.level, text: b.text, sep: b.sep } : { type: 'paragraph', text: b.text, sep: b.sep },
       ),
       frameRef.current,
     );
+    return frameRef.current.crlf ? text.replace(/\n/g, '\r\n') : text;
+  }
+
+  function loadDocument(d: OpenedDocument, how: 'open' | 'reload') {
+    if (!editor) return;
+    const loaded = toContent(d.text, d.name);
+    const scroller = scrollParent(editor.view.dom);
+    const keep = how === 'reload' ? { pos: editor.state.selection.from, top: scroller?.scrollTop ?? 0 } : null;
+    frameRef.current = loaded.frame;
+    editor.commands.setContent(loaded.doc, { emitUpdate: false });
+    if (keep) {
+      editor.commands.setTextSelection(Math.min(keep.pos, editor.state.doc.content.size - 1));
+      if (scroller) scroller.scrollTop = keep.top;
+    } else {
+      editor.commands.setTextSelection(1);
+      if (scroller) scroller.scrollTop = 0;
+    }
+    diskRef.current = d.text;
+    baselineRef.current = serializeCurrent();
+    setDoc({ path: d.path, name: d.name });
+    setDirty(false);
+    if (how === 'open' && loaded.latex) setDocType('paper');
+    checkerRef.current?.reset();
+    void backend.files.watch(d.path);
+  }
+
+  /** Before throwing the current text away: save it, drop it, or stop. */
+  async function confirmDiscard(): Promise<boolean> {
+    if (!dirtyRef.current) return true;
+    const v = await app.ask({
+      title: `Save changes to ${doc.name}?`,
+      message: 'If you do not save, your changes are lost.',
+      buttons: [
+        { label: 'Save', value: 'save', key: 's', primary: true },
+        { label: "Don't save", value: 'discard', key: 'd' },
+        { label: 'Cancel', value: 'cancel', key: 'c' },
+      ],
+      cancel: 'cancel',
+    });
+    if (v === 'save') return save();
+    return v === 'discard';
+  }
+
+  async function open(path?: string) {
     try {
-      const path = await backend.files.saveDocument(doc.path, text);
+      // With a path (recent file, ":e file") ask first; with the picker, once a file is chosen.
+      if (path && !(await confirmDiscard())) return;
+      const d = await backend.files.openDocument(path);
+      if (!d) return;
+      if (!path && !(await confirmDiscard())) return;
+      loadDocument(d, 'open');
+    } catch (e) {
       if (path) {
-        setDoc({ path, name: path.replace(/^.*[\\/]/, '') });
-        setDirty(false);
-      }
+        await backend.files.forgetRecent(path).catch(() => {});
+        app.notify(`Could not open ${path}: ${errorText(e)}`);
+      } else app.notify(errorText(e));
+    }
+  }
+
+  async function openRecent() {
+    const list = (await backend.files.recent()).filter((p) => p !== doc.path);
+    if (!list.length) return app.notify('No recent files yet.');
+    const keys = '123456789abcdefghi';
+    const path = await app.ask({
+      title: 'Open recent',
+      layout: 'list',
+      buttons: list.map((p, i) => ({
+        label: p.replace(/^.*[\\/]/, ''),
+        detail: /[\\/]/.test(p) ? p.replace(/[\\/][^\\/]*$/, '') : undefined,
+        value: p,
+        key: keys[i],
+        primary: i === 0,
+      })),
+      cancel: '',
+    });
+    if (path) await open(path);
+  }
+
+  async function reloadFromDisk() {
+    if (!doc.path) return app.notify('This document has not been saved to a file yet.');
+    if (dirtyRef.current) {
+      const v = await app.ask({
+        title: `Reload ${doc.name}?`,
+        message: 'Your unsaved changes are lost.',
+        buttons: [
+          { label: 'Reload', value: 'reload', key: 'r' },
+          { label: 'Cancel', value: 'cancel', key: 'c', primary: true },
+        ],
+        cancel: 'cancel',
+      });
+      if (v !== 'reload') return;
+    }
+    try {
+      const d = await backend.files.openDocument(doc.path);
+      if (d) loadDocument(d, 'reload');
     } catch (e) {
       app.notify(errorText(e));
     }
   }
 
+  async function save(saveAs = false, suggestion?: string): Promise<boolean> {
+    if (!editor) return false;
+    const text = serializeCurrent();
+    savingRef.current = text;
+    try {
+      let r = await backend.files.saveDocument(suggestion ?? doc.path, text, { base: diskRef.current ?? undefined, saveAs: saveAs || !!suggestion });
+      if (r && 'conflict' in r) {
+        const v = await app.ask({
+          title: `${doc.name} changed on disk`,
+          message: 'Another program changed the file after you opened it. Overwrite its changes with yours, or load the version on disk?',
+          buttons: [
+            { label: 'Overwrite', value: 'overwrite', key: 'o' },
+            { label: 'Load from disk', value: 'reload', key: 'l' },
+            { label: 'Cancel', value: 'cancel', key: 'c', primary: true },
+          ],
+          cancel: 'cancel',
+        });
+        if (v === 'reload' && doc.path) loadDocument({ path: doc.path, name: doc.name, text: r.conflict }, 'reload');
+        if (v !== 'overwrite') return false;
+        r = await backend.files.saveDocument(doc.path, text, {});
+      }
+      if (!r || !('path' in r)) return false;
+      diskRef.current = text;
+      baselineRef.current = text;
+      setDirty(dirtyNow());
+      if (r.path !== doc.path) void backend.files.watch(r.path);
+      setDoc({ path: r.path, name: r.path.replace(/^.*[\\/]/, '') });
+      return true;
+    } catch (e) {
+      app.notify(errorText(e));
+      return false;
+    } finally {
+      savingRef.current = null;
+    }
+  }
+
+  function dirtyNow(): boolean {
+    return !!editor && serializeCurrent() !== baselineRef.current;
+  }
+
+  const fileRef = useRef({ loadDocument, confirmDiscard, open });
+  fileRef.current = { loadDocument, confirmDiscard, open };
+
+  // Unsaved text is offered for saving before the window closes.
+  useEffect(() => app.registerGuard('document', () => fileRef.current.confirmDiscard()), [app.registerGuard]);
+
+  // Changes made by another program (vim, git, a LaTeX tool).
+  useEffect(
+    () =>
+      app.events.onFileChanged(async ({ path, text }) => {
+        const cur = docRef.current;
+        if (path !== cur.path || text === diskRef.current || (text !== null && text === savingRef.current)) return;
+        if (text === null) {
+          diskRef.current = null;
+          return app.notify(`${cur.name} was moved or deleted on disk. Saving writes it again.`);
+        }
+        if (!dirtyRef.current) {
+          fileRef.current.loadDocument({ path, name: cur.name, text }, 'reload');
+          return app.notify(`Reloaded ${cur.name}: it changed on disk.`);
+        }
+        const v = await app.ask({
+          title: `${cur.name} changed on disk`,
+          message: 'You have unsaved changes here. Load the version on disk and lose them, or keep yours? Saving then replaces the file.',
+          buttons: [
+            { label: 'Load from disk', value: 'reload', key: 'l' },
+            { label: 'Keep mine', value: 'keep', key: 'm', primary: true },
+          ],
+          cancel: 'keep',
+        });
+        if (v === 'reload') fileRef.current.loadDocument({ path, name: cur.name, text }, 'reload');
+        else diskRef.current = text;
+      }),
+    [app.events, app.notify, app.ask],
+  );
+
+  // Open the last document again on start.
+  const reopened = useRef(false);
+  useEffect(() => {
+    if (!editor || mock || reopened.current) return;
+    reopened.current = true;
+    if (!settings.reopenLastFile) return;
+    void backend.files.recent().then(async ([last]) => {
+      if (!last || dirtyRef.current) return;
+      const d = await backend.files.openDocument(last).catch(() => null);
+      if (d && !dirtyRef.current) loadDocument(d, 'open');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
+
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if ((ev.metaKey || ev.ctrlKey) && ev.key === 's') {
+      if (!(ev.metaKey || ev.ctrlKey) || ev.altKey) return;
+      const k = ev.key.toLowerCase();
+      // Through the commands, so Ctrl/Cmd+S saves whatever the current view edits.
+      if (k === 's') {
         ev.preventDefault();
-        void save();
-      }
-      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'o') {
+        app.runCommand(ev.shiftKey ? 'saveas' : 'w');
+      } else if (k === 'o' && !ev.shiftKey) {
         ev.preventDefault();
-        void open();
+        app.runCommand('e');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -446,8 +648,9 @@ export function WriteView() {
     <>
       <div className="topbar">
         <span className={`docname${dirty ? ' dirty' : ''}`} title={doc.path ?? ''}>{doc.name}</span>
-        <button className="btn ghost small" onClick={open}>Open</button>
-        <button className="btn ghost small" onClick={save}>Save</button>
+        <button className="btn ghost small" onClick={() => void open()} title="Open (Ctrl/Cmd+O)">Open</button>
+        <button className="btn ghost small" onClick={() => void openRecent()} title="Open a recent file">Recent</button>
+        <button className="btn ghost small" onClick={() => void save()} title="Save (Ctrl/Cmd+S); Save As: Ctrl/Cmd+Shift+S">Save</button>
         <span className="muted">|</span>
         <select value={docType} onChange={(e) => setDocType(e.target.value)} title="Document type, used for move scopes">
           {DOC_TYPES.map((t) => <option key={t}>{t}</option>)}

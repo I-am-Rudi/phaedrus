@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { baseLabel, baseLanguage, LANGUAGES } from '@shared/language';
 import { mergeRules, newRule, newRuleSet, type RuleSet, type WritingRule } from '@shared/rules';
 import type { SourceDoc } from '@shared/types';
-import { errorText, plural, useApp } from '../state';
+import { errorText, plural, useApp, useUnsavedGuard } from '../state';
 
 export function RulesView() {
   const app = useApp();
@@ -30,6 +30,10 @@ export function RulesView() {
 
   const dirty = !!draft && JSON.stringify(draft) !== saved;
   const set = (patch: Partial<RuleSet>) => draft && setDraft({ ...draft, ...patch });
+  const confirmLeave = useUnsavedGuard('rules', 'rules', dirty, `Save changes to ${draft?.name ?? 'the rule set'}?`, () => save());
+  const saveRef = useRef(() => save());
+  saveRef.current = () => save();
+  useEffect(() => app.registerCommands({ w: () => void saveRef.current() }, 'rules'), [app.registerCommands]);
   const setRule = (id: string, patch: Partial<WritingRule>) => draft && set({ rules: draft.rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
 
   async function save(next = draft, reason = 'edit') {
@@ -40,8 +44,10 @@ export function RulesView() {
       setSaved(JSON.stringify(s));
       app.ruleSetChanged(s);
       await app.refreshRules();
+      return true;
     } catch (e) {
       setError(errorText(e));
+      return false;
     }
   }
 
@@ -86,7 +92,7 @@ export function RulesView() {
                 tabIndex={0}
                 data-activate
                 className={`item${r.id === activeId ? ' active' : ''}`}
-                onClick={() => (dirty && !confirm('Discard unsaved changes?') ? null : setActiveId(r.id))}
+                onClick={() => void confirmLeave().then((ok) => ok && setActiveId(r.id))}
               >
                 <div className="name">{r.name}</div>
                 <div className="row small muted">

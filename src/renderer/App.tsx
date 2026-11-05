@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
+import { AskDialog } from './AskDialog';
 import { applyTheme } from './themes';
 import { useApp, type ViewId } from './state';
 import { CheatSheet, CommandLine, HelpOverlay, useGlobalVim } from './vim/app';
@@ -39,6 +40,8 @@ export function App() {
         {button('settings')}
       </nav>
       <main className="view">
+        {/* Drag area for the window on macOS (hidden title bar); the Write view's top bar is its own. */}
+        {view !== 'write' && <div className="drag-strip" />}
         {mock && <div className="mock-banner">Browser preview: profiles live in memory and a rule-based stand-in replaces the language model.</div>}
         {/* The write view stays mounted so the document and its checks survive navigation. */}
         <div className="view" style={{ display: view === 'write' ? 'flex' : 'none', flex: 1, minHeight: 0 }}>
@@ -53,6 +56,7 @@ export function App() {
         <HelpOverlay />
         <LeaderMenu />
         <CheatSheet />
+        <AskDialog />
         {toast && <div className="notice" style={{ position: 'fixed', bottom: 16, right: 16, zIndex: 10 }}>{toast}</div>}
       </main>
     </div>

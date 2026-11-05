@@ -9,12 +9,14 @@ const schema = getSchema([StarterKit, BlockSeparators]);
 
 describe('pasting plain text', () => {
   it('makes one paragraph per blank-line block, not per line', () => {
-    const text = readFileSync('tests/fixtures/intro-attachment.tex', 'utf8');
+    const text = readFileSync('tests/fixtures/latex-hardwrapped.tex', 'utf8');
     const slice = textToSlice(schema, text, 'untitled.md');
-    expect(slice.content.childCount).toBe(33);
+    expect(slice.content.childCount).toBe(32);
     const para = slice.content.child(4);
-    expect(para.textContent).toContain('This question posed by Bryce DeWitt');
-    expect(para.textContent).toContain('the strong interacti');
+    // A hard-wrapped paragraph is one node with line breaks inside.
+    expect(para.type.name).toBe('paragraph');
+    expect(para.textContent).toMatch(/^spin theory \\cite\{ref0\}/);
+    expect(para.content.childCount).toBeGreaterThan(3);
   });
 
   it('keeps single line breaks as breaks inside the paragraph', () => {

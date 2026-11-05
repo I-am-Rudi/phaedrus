@@ -319,3 +319,39 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .page .ProseMirror > p.latex-chapter, .page .ProseMirror > p.latex-part { font-size: 1.4em; }
 .page .ProseMirror > p.latex-section { font-size: 1.22em; }
 .page .ProseMirror > p.latex-subsection { font-size: 1.08em; }
+
+/* ---------- small dialogs (unsaved changes, recent files) ---------- */
+.ask-overlay { z-index: 40; align-items: flex-start; padding-top: 18vh; }
+.ask { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 3px; padding: 18px 20px 12px; width: 420px; max-width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.ask.list { width: 520px; }
+.ask-title { font-weight: 600; font-size: 15px; }
+.ask-message { margin: 0; color: var(--ink-2); }
+.ask-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; flex-wrap: wrap; }
+.ask .btn { display: inline-flex; align-items: center; gap: 6px; }
+.ask .btn .kbd { font-size: 11px; padding: 0 4px; }
+.ask .btn.primary .kbd { background: color-mix(in srgb, var(--on-accent) 22%, transparent); color: var(--on-accent); }
+.ask .btn.focus:not(.primary) { border-color: var(--ink-3); }
+.ask.list .ask-buttons { flex-direction: column; gap: 0; align-items: stretch; margin-top: 4px; }
+.ask-item { display: grid; grid-template-columns: 1.8em 1fr; column-gap: 8px; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 3px; cursor: pointer; }
+.ask-item .kbd { grid-row: span 2; align-self: center; text-align: center; color: var(--accent-ink); }
+.ask-item .ask-detail { grid-column: 2; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-item.on { background: var(--sunk); }
+.ask-hint { font-size: 11px; margin-top: 6px; }
+
+/* ---------- macOS: title bar inside the app ----------
+   The window buttons (traffic lights) sit at the top of the side rail; the
+   rail top, the Write view's top bar and a strip above the other views drag
+   the window. Controls inside them opt out of dragging. */
+.drag-strip { display: none; }
+.titlebar-inset .app { grid-template-columns: 76px 1fr; }
+.titlebar-inset .rail { padding-top: 46px; -webkit-app-region: drag; }
+.titlebar-inset .rail button { -webkit-app-region: no-drag; }
+.titlebar-inset .topbar { -webkit-app-region: drag; min-height: 50px; }
+.titlebar-inset .topbar > *, .titlebar-inset .topbar button, .titlebar-inset .topbar select, .titlebar-inset .topbar input { -webkit-app-region: no-drag; }
+.titlebar-inset .topbar > .status { -webkit-app-region: drag; }
+.titlebar-inset .topbar > .status button { -webkit-app-region: no-drag; }
+.titlebar-inset .drag-strip { display: block; height: 22px; flex: none; -webkit-app-region: drag; }
+.titlebar-inset.is-fullscreen .rail { padding-top: 12px; }
+.titlebar-inset.is-fullscreen .drag-strip { display: none; }
+/* Overlays and dialogs must stay clickable over drag areas. */
+.titlebar-inset .overlay, .titlebar-inset .popover, .titlebar-inset .notice { -webkit-app-region: no-drag; }
