@@ -277,4 +277,14 @@ Not yet tested against the real services: prompt quality with real models, the `
 
 ## License
 
-MIT
+Copyright (C) 2026 Rudi Siebert
+
+Phaedrus is free software: you can redistribute it and/or modify it under the terms of the [GNU Affero General Public License](LICENSE) as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but without any warranty; without even the implied warranty of merchantability or fitness for a particular purpose. See the license for details.
+
+In short: anyone may use, study, change and share Phaedrus, but whoever distributes a changed version, or runs one as a service for others, has to publish its source under the same license.
+
+Other material in this repository:
+
+- The built-in *Signs of AI writing* rule set (`src/shared/defaults/aiTells.ts`) is adapted from Wikipedia's [Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) by WikiProject AI Cleanup and contributors, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), which permits its use in GPLv3-licensed software.
+- The bundled Fira Sans and Source Serif 4 fonts are under the SIL Open Font License 1.1.
+- Dependencies keep their own licenses (MIT, Apache-2.0, ISC). LanguageTool (LGPL) and the Claude and Codex command-line tools are separate programs that Phaedrus talks to; they are not part of it.
