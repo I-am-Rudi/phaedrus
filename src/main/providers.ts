@@ -3,7 +3,7 @@
 //  - Subscriptions via the official CLIs running headless: `claude -p` and `codex exec`,
 //    which use whatever login those tools already have.
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LLM, LLMRequest } from '@shared/coach';
@@ -154,4 +154,62 @@ export async function providerLogin(settings: Settings): Promise<string> {
     return (r.stdout || r.stderr).trim() || 'Done.';
   }
   return 'This provider uses an API key; no sign-in needed.';
+}
+
+const TRANSCRIBE = `Transcribe the running text of this document verbatim, in reading order.
+Separate paragraphs with a blank line. Leave out page numbers, running headers and footers, and the contents of figures and tables.
+Write mathematics as LaTeX between $...$ (inline) or $$...$$ (displayed). Output only the transcription.`;
+
+const MAX_PDF_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Let the model read a PDF that has no text layer (scanned pages). Supported for
+ * the Claude CLI (it reads the file itself) and the Anthropic API (PDF input).
+ */
+export async function transcribePdf(settings: Settings, file: string, workDir: string): Promise<string> {
+  const data = await readFile(file);
+  if (data.length > MAX_PDF_BYTES) throw new Error('The PDF is larger than 32 MB; split it or export its text first.');
+  if (settings.provider === 'anthropic') {
+    const cfg = settings.anthropic;
+    if (!cfg.apiKey) throw new Error('Add an Anthropic API key in Settings.');
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: cfg.strongModel,
+        max_tokens: 16000,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: data.toString('base64') } },
+              { type: 'text', text: TRANSCRIBE },
+            ],
+          },
+        ],
+      }),
+    });
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${body?.error?.message ?? res.statusText}`);
+    return (body.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('');
+  }
+  if (settings.provider === 'claude-cli') {
+    const name = `source-${Date.now()}.pdf`;
+    await writeFile(join(workDir, name), data);
+    try {
+      const args = ['-p', '--output-format', 'json', '--allowedTools', 'Read'];
+      if (settings.claudeCli.strongModel) args.push('--model', settings.claudeCli.strongModel);
+      const res = await run(settings.claudeCli.binary || 'claude', args, {
+        input: `Read the file ./${name}. ${TRANSCRIBE}`,
+        cwd: workDir,
+        timeoutMs: 600_000,
+      });
+      const parsed = JSON.parse(res.stdout || '{}');
+      if (parsed.is_error || res.code !== 0) throw new Error(String(parsed.result ?? res.stderr).slice(0, 300));
+      return String(parsed.result ?? '');
+    } finally {
+      await rm(join(workDir, name), { force: true });
+    }
+  }
+  throw new Error('This PDF is scanned (no text layer). Reading it needs the Claude CLI or an Anthropic API key; otherwise export its text first.');
 }

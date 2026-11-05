@@ -10,7 +10,8 @@ import { exportBundle, exportMarkdown, importProfile } from '@shared/profile/exc
 import { applyEvent } from '@shared/profile/feedback';
 import type { SourceDoc } from '@shared/types';
 import { checkGrammar } from './grammar';
-import { createLLM, providerLogin, providerStatus } from './providers';
+import { readSource, SOURCE_EXTENSIONS } from './documents';
+import { createLLM, providerLogin, providerStatus, transcribePdf } from './providers';
 import { Store } from './store';
 
 migrateFromGorgias();
@@ -150,10 +151,30 @@ const backend: Backend = {
   },
   files: {
     async pickSources() {
-      const { canceled, filePaths } = await dialog.showOpenDialog(win(), { properties: ['openFile', 'multiSelections'], filters: TEXT_FILTERS });
+      const { canceled, filePaths } = await dialog.showOpenDialog(win(), {
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Documents', extensions: SOURCE_EXTENSIONS }],
+      });
       if (canceled) return [];
       const docs: SourceDoc[] = [];
-      for (const f of filePaths) docs.push({ name: basename(f).replace(/\.[^.]+$/, ''), text: await readFile(f, 'utf8') });
+      for (const f of filePaths) {
+        try {
+          const r = await readSource(f);
+          if (!r.needsOcr) {
+            docs.push(r.doc);
+            continue;
+          }
+          // Scanned PDF: let the model read it.
+          try {
+            const text = await transcribePdf(await store.getSettings(), f, cliWorkDir);
+            docs.push({ ...r.doc, text, warning: 'Scanned PDF, text read by the model. Check it before extracting.' });
+          } catch (e) {
+            docs.push({ ...r.doc, text: '', warning: (e as Error).message });
+          }
+        } catch (e) {
+          docs.push({ name: basename(f), text: '', warning: `Could not read this file: ${(e as Error).message}` });
+        }
+      }
       return docs;
     },
     async openDocument() {

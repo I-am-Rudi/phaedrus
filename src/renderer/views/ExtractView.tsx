@@ -122,10 +122,11 @@ export function ExtractView() {
                 <input type="text" placeholder="author" value={s.author ?? ''} onChange={(e) => setSources(sources.map((x, k) => (k === i ? { ...x, author: e.target.value || undefined } : x)))} />
                 <button className="btn ghost small" onClick={() => setSources(sources.filter((_, k) => k !== i))}>Remove</button>
               </div>
+              {s.warning && <div className="small" style={{ color: 'var(--accent-ink)' }}>{s.warning}</div>}
               <textarea rows={s.text.length > 400 ? 6 : 4} value={s.text} placeholder="Paste the text here" onChange={(e) => setSources(sources.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)))} />
             </div>
           ))}
-          {!sources.length && <div className="muted small">Markdown, plain text and LaTeX files work. For PDFs or e-books, export to text first.</div>}
+          {!sources.length && <div className="muted small">PDF, EPUB, Markdown, plain text and LaTeX files work. Text is pulled from PDFs and e-books automatically; scanned PDFs are read by the model.</div>}
         </div>
 
         <div className="row">

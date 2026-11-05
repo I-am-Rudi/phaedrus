@@ -8,6 +8,7 @@ files:
   - package.json
 asarUnpack:
   - node_modules/harper.js/**
+  - node_modules/pdfjs-dist/**
 publish:
   provider: github
   releaseType: draft
