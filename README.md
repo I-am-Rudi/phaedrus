@@ -1,6 +1,6 @@
-# Gorgias
+# Phaedrus
 
-Named after Gorgias of Leontini (about 483 to 375 BC), the sophist who taught rhetoric in Athens.
+Named after Plato's *Phaedrus*, the dialogue in which Socrates and Phaedrus argue about rhetoric and about what makes writing good.
 
 A desktop writing assistant that checks spelling and grammar and coaches your style toward authors you choose. Style suggestions come from a **taste profile**: a Markdown file that lists concrete moves extracted from writing you admire, which you can edit, export, blend and keep under git.
 
@@ -71,7 +71,7 @@ Profiles are plain Markdown in the profiles folder (Settings). Hand-written file
 
 ````markdown
 ---
-gorgias: 1
+phaedrus: 1
 id: plain-physics
 name: Plain physics
 kind: general

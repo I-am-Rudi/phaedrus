@@ -5,7 +5,7 @@
 // is flagged regardless of weight and rejections add notes instead of fading.
 //
 // File format (Markdown, one file per rule set):
-//   ---  frontmatter: gorgias-rules, id, name, language, description, sources
+//   ---  frontmatter: phaedrus-rules, id, name, language, description, sources
 //   ## Rule title
 //   ```yaml  id, enabled, locked, origin, source, scope, stats
 //   Rule text
@@ -120,7 +120,7 @@ export function mergeRules(set: RuleSet, incoming: WritingRule[], sources: Sourc
 // ------------------------------------------------------------------ Markdown
 
 export function serializeRuleSet(s: RuleSet): string {
-  const front: Record<string, unknown> = { 'gorgias-rules': 1, id: s.id, name: s.name };
+  const front: Record<string, unknown> = { 'phaedrus-rules': 1, id: s.id, name: s.name };
   if (s.language) front.language = s.language;
   Object.assign(front, { description: s.description, sources: s.sources, created: s.created, updated: s.updated });
   const out = ['---', YAML.stringify(front).trimEnd(), '---', '', `# ${s.name}`, ''];

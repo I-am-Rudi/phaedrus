@@ -56,7 +56,7 @@ describe('rule sets', () => {
   });
 
   it('are stored in their own folder with history', async () => {
-    const store = new Store(await mkdtemp(join(tmpdir(), 'gorgias-rules-')), { available: () => false, encrypt: (x) => x, decrypt: (x) => x });
+    const store = new Store(await mkdtemp(join(tmpdir(), 'phaedrus-rules-')), { available: () => false, encrypt: (x) => x, decrypt: (x) => x });
     await store.saveRuleSet(sample(), 'create');
     await store.saveRuleSet({ ...sample(), rules: [] }, 'edit');
     expect(await store.listRuleSets()).toEqual([expect.objectContaining({ id: 'thesis-rules', rules: 0, language: 'en-GB' })]);

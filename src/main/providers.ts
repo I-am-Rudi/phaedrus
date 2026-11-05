@@ -100,7 +100,7 @@ function claudeCli(cfg: Settings['claudeCli'], workDir: string): LLM {
 function codexCli(cfg: Settings['codexCli'], workDir: string): LLM {
   return {
     async complete(r) {
-      const dir = await mkdtemp(join(tmpdir(), 'gorgias-codex-'));
+      const dir = await mkdtemp(join(tmpdir(), 'phaedrus-codex-'));
       const outFile = join(dir, 'last-message.txt');
       try {
         const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--output-last-message', outFile];

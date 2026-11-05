@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell } from 'electron';
@@ -13,6 +13,8 @@ import { checkGrammar } from './grammar';
 import { createLLM, providerLogin, providerStatus } from './providers';
 import { Store } from './store';
 
+migrateFromGorgias();
+
 const store = new Store(app.getPath('userData'), {
   available: () => safeStorage.isEncryptionAvailable(),
   encrypt: (s) => safeStorage.encryptString(s).toString('base64'),
@@ -25,6 +27,28 @@ mkdirSync(cliWorkDir, { recursive: true });
 
 const llm = async () => createLLM(await store.getSettings(), cliWorkDir);
 const win = () => BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]!;
+
+/** The app was called Gorgias before; carry its settings and profiles over once. */
+function migrateFromGorgias() {
+  const target = app.getPath('userData');
+  if (existsSync(join(target, 'settings.json'))) return;
+  for (const name of ['Gorgias', 'gorgias']) {
+    const old = join(app.getPath('appData'), name);
+    if (!existsSync(join(old, 'settings.json'))) continue;
+    mkdirSync(target, { recursive: true });
+    cpSync(join(old, 'settings.json'), join(target, 'settings.json'));
+    // Profiles kept in the default folder move along; a custom profiles folder stays where it is.
+    if (existsSync(join(old, 'profiles'))) cpSync(join(old, 'profiles'), join(target, 'profiles'), { recursive: true });
+    try {
+      const settingsFile = join(target, 'settings.json');
+      const raw = readFileSync(settingsFile, 'utf8');
+      writeFileSync(settingsFile, raw.split(join(old, 'profiles')).join(join(target, 'profiles')));
+    } catch {
+      /* keep the copy as is */
+    }
+    return;
+  }
+}
 
 const TEXT_FILTERS = [{ name: 'Text', extensions: ['md', 'markdown', 'txt', 'tex'] }];
 
@@ -193,7 +217,7 @@ function createWindow() {
     height: 880,
     minWidth: 900,
     minHeight: 600,
-    title: 'Gorgias',
+    title: 'Phaedrus',
     backgroundColor: '#fafafa',
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.mjs'), sandbox: false, contextIsolation: true },
   });

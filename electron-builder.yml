@@ -1,5 +1,5 @@
-appId: dev.gorgias.app
-productName: Gorgias
+appId: dev.phaedrus.app
+productName: Phaedrus
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
   output: dist

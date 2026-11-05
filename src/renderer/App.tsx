@@ -33,7 +33,7 @@ export function App() {
   return (
     <div className="app">
       <nav className="rail">
-        <div className="mark">G</div>
+        <div className="mark">P</div>
         {(['write', 'profiles', 'rules', 'extract', 'blend'] as ViewId[]).map(button)}
         <div className="spacer" />
         {button('settings')}
