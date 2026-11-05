@@ -2,6 +2,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { DOC_TYPES, parseDocument, serializeDocument, type DocBlock } from '@shared/document';
+import { baseLabel, baseLanguage, harperDialectFor, languageLabel, languageMatches } from '@shared/language';
 import { hintFor } from '@shared/profile/feedback';
 import type { Category, Mode } from '@shared/types';
 import { Checker, type Entry, type FeedbackEntry, type StyleEntry } from '../editor/checker';
@@ -38,8 +39,8 @@ export function WriteView() {
   const [selected, setSelected] = useState<string | null>(null);
 
   // Live values for the checker without re-creating it.
-  const live = useRef({ settings, general, project, docType, profileChanged: app.profileChanged });
-  live.current = { settings, general, project, docType, profileChanged: app.profileChanged };
+  const live = useRef({ settings, general, project, docType, language: app.language, profileChanged: app.profileChanged });
+  live.current = { settings, general, project, docType, language: app.language, profileChanged: app.profileChanged };
 
   const checkerRef = useRef<Checker | null>(null);
   const editor = useEditor({
@@ -66,6 +67,7 @@ export function WriteView() {
       settings: () => live.current.settings,
       profiles: () => ({ general: live.current.general, project: live.current.project }),
       docType: () => live.current.docType,
+      language: () => live.current.language,
       onProfile: (p) => live.current.profileChanged(p),
     });
     checkerRef.current = c;
@@ -83,7 +85,8 @@ export function WriteView() {
   // Context changes that invalidate style results.
   const profileKey = `${general?.id}:${general?.moves.map((m) => m.id + m.description + m.enabled + m.scope.docTypes + m.scope.sections).join()}|${project?.id}:${project?.moves.map((m) => m.id + m.description + m.enabled).join()}`;
   useEffect(() => checker?.invalidate('style'), [checker, profileKey, docType]);
-  useEffect(() => checker?.invalidate('grammar'), [checker, settings.grammar.engine, settings.grammar.language, settings.grammar.harperDialect, settings.dictionary.length]);
+  const language = app.language;
+  useEffect(() => checker?.invalidate('grammar'), [checker, settings.grammar.engine, language, settings.grammar.harperDialect, settings.dictionary.length]);
   useEffect(() => checker?.setMode(settings.mode), [checker, settings.mode]);
 
   const ordered = useMemo(() => {
@@ -149,7 +152,7 @@ export function WriteView() {
   const busy = checker && (checker.grammarPhase === 'busy' || checker.stylePhase === 'busy');
   const err = checker && (checker.grammarPhase === 'error' || checker.stylePhase === 'error' || !!checker.message);
   const projects = app.summaries.filter((s) => s.kind === 'project');
-  const generals = app.summaries.filter((s) => s.kind === 'general');
+  const generals = app.summaries.filter((s) => s.kind === 'general' && languageMatches(s.language, app.language));
 
   return (
     <>
@@ -162,11 +165,11 @@ export function WriteView() {
           {DOC_TYPES.map((t) => <option key={t}>{t}</option>)}
         </select>
         <select
-          value={settings.activeGeneralProfile ?? ''}
-          onChange={(e) => void app.updateSettings({ activeGeneralProfile: e.target.value || null })}
-          title="General taste profile"
+          value={general?.id ?? ''}
+          onChange={(e) => void app.setActiveGeneral(e.target.value || null)}
+          title={`General taste profile for ${languageLabel(app.language)}`}
         >
-          <option value="">No general profile</option>
+          <option value="">{generals.length ? 'No general profile' : `No ${baseLabel(baseLanguage(app.language))} profiles`}</option>
           {generals.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
         <select
@@ -177,6 +180,7 @@ export function WriteView() {
           <option value="">No project profile</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        <span className="tag" title={project?.language ? `Language of the project profile ${project.name}` : 'Default language from Settings'}>{languageLabel(language)}</span>
         <div className="seg" role="tablist">
           <button className={settings.mode === 'assistant' ? 'on' : ''} onClick={() => setMode('assistant')}>Assistant</button>
           <button className={settings.mode === 'teacher' ? 'on' : ''} onClick={() => setMode('teacher')}>Teacher</button>
@@ -204,6 +208,17 @@ export function WriteView() {
             </div>
             {settings.mode === 'teacher' && (
               <div className="small muted">Style issues show a hint only. Revise the passage; feedback comes when you leave the paragraph.</div>
+            )}
+            {settings.grammar.engine === 'harper' && !harperDialectFor(app.language, settings.grammar.harperDialect) && (
+              <div className="small muted">
+                Harper checks English only, so spelling and grammar are off for {languageLabel(app.language)}.{' '}
+                <a href="#" onClick={(e) => (e.preventDefault(), app.go('settings'))}>Use LanguageTool</a>
+              </div>
+            )}
+            {app.generalMismatch && (
+              <div className="small muted">
+                {app.generalMismatch.name} is a {languageLabel(app.generalMismatch.language ?? '')} profile and is not used for {languageLabel(app.language)} text.
+              </div>
             )}
             {!general && !project && (
               <div className="small muted">

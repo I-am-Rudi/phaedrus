@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { LANGUAGES } from '@shared/language';
 import type { ProviderId, Settings } from '@shared/types';
 import { errorText, useApp } from '../state';
 
@@ -105,12 +106,18 @@ export function SettingsView() {
             {s.grammar.engine === 'languagetool' && (
               <>
                 <label className="field">Server URL<input type="text" value={s.grammar.languageToolUrl} onChange={(e) => patch('grammar', { languageToolUrl: e.target.value })} /></label>
-                <label className="field">Language<input type="text" value={s.grammar.language} placeholder="auto, en-GB, de-DE" onChange={(e) => patch('grammar', { language: e.target.value })} /></label>
               </>
             )}
+            <label className="field">
+              Default language (project profiles can override it)
+              <select value={s.grammar.language} onChange={(e) => patch('grammar', { language: e.target.value })}>
+                {LANGUAGES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+                {!LANGUAGES.some(([c]) => c === s.grammar.language) && <option value={s.grammar.language}>{s.grammar.language}</option>}
+              </select>
+            </label>
             {s.grammar.engine === 'harper' && (
               <label className="field">
-                Dialect
+                English dialect when the language does not say
                 <select value={s.grammar.harperDialect} onChange={(e) => patch('grammar', { harperDialect: e.target.value as Settings['grammar']['harperDialect'] })}>
                   {['british', 'american', 'canadian', 'australian'].map((d) => <option key={d}>{d}</option>)}
                 </select>

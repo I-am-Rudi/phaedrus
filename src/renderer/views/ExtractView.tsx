@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { computeMetrics } from '@shared/metrics';
 import { mergeDiff, type DiffEntry } from '@shared/profile/diff';
+import { LANGUAGES, languageLabel } from '@shared/language';
 import type { SourceDoc, StyleMove, TasteProfile } from '@shared/types';
 import { errorText, plural, useApp } from '../state';
 
@@ -11,6 +12,7 @@ export function ExtractView() {
   const [targetProfile, setTargetProfile] = useState<TasteProfile | null>(null);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<TasteProfile['kind']>('general');
+  const [language, setLanguage] = useState<string>(app.language === 'auto' ? '' : app.language);
   const [sources, setSources] = useState<SourceDoc[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -25,6 +27,7 @@ export function ExtractView() {
       setTargetProfile(p);
       setName(p.name);
       setKind(p.kind);
+      setLanguage(p.language ?? '');
     });
   }, [target, backend]);
 
@@ -45,7 +48,7 @@ export function ExtractView() {
     setResult(null);
     setDiff(null);
     try {
-      const extracted = await backend.coach.extract(sources.filter((s) => s.text.trim()), name || 'New profile', kind);
+      const extracted = await backend.coach.extract(sources.filter((s) => s.text.trim()), name || 'New profile', kind, language || undefined);
       setResult(extracted);
       if (targetProfile) setDiff(await backend.coach.diff(targetProfile, extracted));
     } catch (e) {
@@ -58,7 +61,7 @@ export function ExtractView() {
   async function saveNew(use: boolean) {
     if (!result) return;
     const p = await backend.profiles.save(result, 'extraction');
-    if (use) await app.updateSettings(p.kind === 'project' ? { activeProjectProfile: p.id } : { activeGeneralProfile: p.id });
+    if (use) await (p.kind === 'project' ? app.updateSettings({ activeProjectProfile: p.id }) : app.setActiveGeneral(p.id, p.language ?? 'auto'));
     await app.refreshProfiles();
     app.go('profiles', p.id);
   }
@@ -81,12 +84,12 @@ export function ExtractView() {
           More text from several pieces gives steadier results; a few thousand words per author is a good start.
         </p>
 
-        <div className="grid3">
+        <div className="grid2" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
           <label className="field">
             Into
             <select value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">a new profile</option>
-              {app.summaries.map((s) => <option key={s.id} value={s.id}>re-extract into {s.name}</option>)}
+              {app.summaries.map((s) => <option key={s.id} value={s.id}>re-extract into {s.name}{s.language ? ` (${languageLabel(s.language)})` : ''}</option>)}
             </select>
           </label>
           <label className="field">Name<input type="text" value={name} disabled={!!target} placeholder="e.g. Feynman lectures" onChange={(e) => setName(e.target.value)} /></label>
@@ -95,6 +98,13 @@ export function ExtractView() {
             <select value={kind} disabled={!!target} onChange={(e) => setKind(e.target.value as TasteProfile['kind'])}>
               <option value="general">general</option>
               <option value="project">project</option>
+            </select>
+          </label>
+          <label className="field">
+            Language of the sources
+            <select value={language} disabled={!!target} onChange={(e) => setLanguage(e.target.value)}>
+              <option value="">Any language</option>
+              {LANGUAGES.filter(([c]) => c !== 'auto').map(([code, label]) => <option key={code} value={code}>{label}</option>)}
             </select>
           </label>
         </div>

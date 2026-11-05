@@ -91,7 +91,7 @@ Rules:
 export async function extractProfile(
   llm: LLM,
   sources: SourceDoc[],
-  opts: { name: string; kind?: TasteProfile['kind']; takenIds?: string[] },
+  opts: { name: string; kind?: TasteProfile['kind']; language?: string; takenIds?: string[] },
 ): Promise<TasteProfile> {
   if (!sources.length) throw new Error('Add at least one source.');
   const metrics = computeMetrics(sources.map((s) => s.text).join('\n\n'));
@@ -106,6 +106,7 @@ export async function extractProfile(
   if (!rawMoves.length) throw new Error('The model returned no style moves.');
 
   const profile = newProfile(opts.name, opts.kind ?? 'general', opts.takenIds ?? []);
+  if (opts.language) profile.language = opts.language;
   profile.description = str(data.description);
   profile.metrics = metrics;
   profile.sources = sources.map((s) => (s.author ? { title: s.name, author: s.author } : { title: s.name }));

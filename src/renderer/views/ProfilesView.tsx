@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Snapshot } from '@shared/api';
+import { baseLabel, baseLanguage, LANGUAGES, languageLabel } from '@shared/language';
+import type { ProfileSummary } from '@shared/api';
 import type { ExcerptPolicy } from '@shared/profile/exchange';
 import { newMove, newProfile } from '@shared/profile/model';
 import type { Example, HintLevel, StyleMove, TasteProfile } from '@shared/types';
@@ -84,14 +86,25 @@ export function ProfilesView() {
           <button className="btn ghost small" onClick={() => void importOne()}>Import</button>
           {!app.mock && <button className="btn ghost small" onClick={() => void backend.profiles.reveal()}>Open folder</button>}
         </div>
-        {summaries.map((s) => (
-          <div key={s.id} className={`item${s.id === activeId ? ' active' : ''}`} onClick={() => (dirty && !confirm('Discard unsaved changes?') ? null : setActiveId(s.id))}>
-            <div className="name">{s.name}</div>
-            <div className="row small muted">
-              <span className="tag">{s.kind}</span>
-              {plural(s.moves, 'move')}
-              {(app.settings.activeGeneralProfile === s.id || app.settings.activeProjectProfile === s.id) && <span className="tag on">active</span>}
-            </div>
+        {groupByLanguage(summaries).map(([base, items]) => (
+          <div key={base ?? 'any'}>
+            <div className="group">{baseLabel(base)}</div>
+            {items.map((s) => (
+              <div
+                key={s.id}
+                tabIndex={0}
+                data-activate
+                className={`item${s.id === activeId ? ' active' : ''}`}
+                onClick={() => (dirty && !confirm('Discard unsaved changes?') ? null : setActiveId(s.id))}
+              >
+                <div className="name">{s.name}</div>
+                <div className="row small muted">
+                  <span className="tag">{s.kind}</span>
+                  {plural(s.moves, 'move')}
+                  {(app.activeGeneralId === s.id || app.settings.activeProjectProfile === s.id) && <span className="tag on">active</span>}
+                </div>
+              </div>
+            ))}
           </div>
         ))}
         {!summaries.length && <div className="empty">No profiles yet. Extract one from authors you like, or start from scratch.</div>}
@@ -138,10 +151,13 @@ function ProfileEditor({ draft, setDraft, dirty, onSave, onRevert, onDeleted, on
   const [panel, setPanel] = useState<'moves' | 'history' | 'export'>('moves');
   const set = (patch: Partial<TasteProfile>) => setDraft({ ...draft, ...patch });
   const setMove = (id: string, patch: Partial<StyleMove>) => set({ moves: draft.moves.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
-  const active = app.settings.activeGeneralProfile === draft.id || app.settings.activeProjectProfile === draft.id;
+  const usedFor = baseLanguage(draft.language);
+  const active =
+    app.settings.activeProjectProfile === draft.id ||
+    (usedFor ? app.settings.generalByLanguage[usedFor] === draft.id : app.settings.activeGeneralProfile === draft.id);
 
   const activate = () =>
-    void app.updateSettings(draft.kind === 'project' ? { activeProjectProfile: draft.id } : { activeGeneralProfile: draft.id });
+    void (draft.kind === 'project' ? app.updateSettings({ activeProjectProfile: draft.id }) : app.setActiveGeneral(draft.id, draft.language ?? 'auto'));
 
   return (
     <div className="pane-inner">
@@ -161,8 +177,15 @@ function ProfileEditor({ draft, setDraft, dirty, onSave, onRevert, onDeleted, on
             <option value="project">project (overrides general)</option>
           </select>
         </label>
-        <label className="field">File<input type="text" value={`${draft.id}.md`} readOnly /></label>
+        <label className="field">
+          {draft.kind === 'project' ? 'Document language' : 'Language this profile applies to'}
+          <select value={draft.language ?? ''} onChange={(e) => set({ language: e.target.value || undefined })}>
+            <option value="">{draft.kind === 'project' ? `Default (${languageLabel(app.settings.grammar.language)})` : 'Any language'}</option>
+            {LANGUAGES.filter(([c]) => c !== 'auto').map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+          </select>
+        </label>
       </div>
+      <div className="small muted">File: {draft.id}.md</div>
       <label className="field">Description<textarea rows={2} value={draft.description} onChange={(e) => set({ description: e.target.value })} /></label>
       {draft.sources.length > 0 && (
         <div className="small muted">Sources: {draft.sources.map((s) => (s.author ? `${s.title} (${s.author})` : s.title)).join('; ')}</div>
@@ -395,4 +418,14 @@ function Export({ id, dirty }: { id: string; dirty: boolean }) {
       </div>
     </div>
   );
+}
+
+/** Profiles grouped by base language; "any language" last. */
+function groupByLanguage(list: ProfileSummary[]): [string | null, ProfileSummary[]][] {
+  const groups = new Map<string | null, ProfileSummary[]>();
+  for (const s of list) {
+    const b = baseLanguage(s.language);
+    groups.set(b, [...(groups.get(b) ?? []), s]);
+  }
+  return [...groups.entries()].sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : baseLabel(a).localeCompare(baseLabel(b))));
 }

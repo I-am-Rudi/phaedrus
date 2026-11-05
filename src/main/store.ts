@@ -22,6 +22,7 @@ export function defaultSettings(userData: string): Settings {
     grammar: { engine: 'languagetool', languageToolUrl: 'http://localhost:8081', language: 'auto', harperDialect: 'british' },
     profilesDir: join(userData, 'profiles'),
     activeGeneralProfile: null,
+    generalByLanguage: {},
     activeProjectProfile: null,
     mode: 'assistant',
     dictionary: [],
@@ -121,7 +122,7 @@ export class Store {
       if (!f.endsWith('.md')) continue;
       try {
         const p = parseProfile(await readFile(join(dir, f), 'utf8'), f.slice(0, -3));
-        out.push({ id: f.slice(0, -3), name: p.name, kind: p.kind, moves: p.moves.length, updated: p.updated });
+        out.push({ id: f.slice(0, -3), name: p.name, kind: p.kind, language: p.language, moves: p.moves.length, updated: p.updated });
       } catch {
         /* skip unreadable files */
       }

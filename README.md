@@ -43,6 +43,14 @@ The profile view also offers:
 - **Blend**: combine profiles with weights (say 70/30). Move weights are scaled by each profile's share. Moves with overlapping titles are listed for you to keep one, keep both or merge; a second pass asks the model for contradictions between differently named moves.
 - **Export** as a single `.md` or a `.zip` bundle with a sources list. Choose to keep all author excerpts, only those of 25 words or fewer, or none. Your own example sentences are always included.
 
+### Languages
+
+Every profile has a language. A project profile's language is the document language; a general profile's language says which writing it applies to. Profiles are grouped by language, and matching uses the base language, so an `en-GB` profile applies to `en-US` text but never to German.
+
+The document language comes from the active project profile, or from the default in Settings. Only general profiles in that language (or with no language) are offered, and the choice is remembered per language. Extraction asks for the language of the sources, and blending combines profiles of one language only.
+
+Spelling and grammar follow the same language: LanguageTool checks it with its rules for that language (31 languages, with deep coverage for English, German, French, Spanish, Portuguese, Dutch, Catalan and Ukrainian), and Harper checks English only, picking British, American, Canadian or Australian spelling from the language code. Style rewrites stay in the paragraph's language. The measured hedge, passive and first-person rates use English word lists; sentence length works for any language.
+
 ### File format
 
 Profiles are plain Markdown in the profiles folder (Settings). Hand-written files without settings blocks are read too; missing values get defaults.

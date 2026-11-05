@@ -102,3 +102,23 @@ describe('style checks and metrics on LaTeX', () => {
     expect(latex.words).toBe(proseOf('We find X is finite. It converges.').split(/\s+/).length);
   });
 });
+
+describe('project language', () => {
+  it('picks the Harper dialect from the language and skips non-English', async () => {
+    const { harperDialectFor } = await import('@shared/language');
+    expect(harperDialectFor('en-US', 'british')).toBe('american');
+    expect(harperDialectFor('auto', 'british')).toBe('british');
+    expect(harperDialectFor('de-DE', 'british')).toBeNull();
+    const cfg = { ...defaultSettings('/tmp').grammar, engine: 'harper' as const };
+    expect(await checkGrammar('Their are mispeled words.', cfg, 'de-DE')).toEqual([]);
+    expect((await checkGrammar('Their are mispeled words.', cfg, 'en-GB')).length).toBeGreaterThan(0);
+  });
+
+  it('round-trips the language of a project profile', async () => {
+    const { parseProfile, serializeProfile } = await import('@shared/profile/markdown');
+    const { newProfile } = await import('@shared/profile/model');
+    const p = { ...newProfile('Thesis', 'project'), language: 'de-DE' };
+    expect(parseProfile(serializeProfile(p)).language).toBe('de-DE');
+    expect(parseProfile(serializeProfile(newProfile('x'))).language).toBeUndefined();
+  });
+});

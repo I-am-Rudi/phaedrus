@@ -5,13 +5,17 @@
 
 import { Dialect, LocalLinter, SuggestionKind } from 'harper.js';
 import { binaryInlined } from 'harper.js/binaryInlined';
+import { harperDialectFor } from '@shared/language';
 import { hasLatex, mapBack, maskLatex } from '@shared/latex';
 import { codePointToUtf16, findQuote } from '@shared/spans';
 import type { GrammarIssue, Settings } from '@shared/types';
 
-export async function checkGrammar(text: string, cfg: Settings['grammar']): Promise<GrammarIssue[]> {
+export async function checkGrammar(text: string, cfg: Settings['grammar'], language?: string): Promise<GrammarIssue[]> {
   if (!text.trim() || cfg.engine === 'none') return [];
-  const run = (t: string) => (cfg.engine === 'languagetool' ? languageTool(t, cfg) : harper(t, cfg.harperDialect));
+  const lang = language || cfg.language || 'auto';
+  const dialect = harperDialectFor(lang, cfg.harperDialect);
+  if (cfg.engine === 'harper' && !dialect) return []; // Harper is English only
+  const run = (t: string) => (cfg.engine === 'languagetool' ? languageTool(t, cfg, lang) : harper(t, dialect!));
   if (!hasLatex(text)) return run(text);
   // Check the prose with LaTeX masked out, then put findings back on the original.
   const masked = maskLatex(text);
@@ -23,9 +27,9 @@ export async function checkGrammar(text: string, cfg: Settings['grammar']): Prom
 /** LanguageTool issue types that are about style; the taste profile owns style. */
 const LT_SKIP = new Set(['style', 'register', 'locale-violation']);
 
-async function languageTool(text: string, cfg: Settings['grammar']): Promise<GrammarIssue[]> {
+async function languageTool(text: string, cfg: Settings['grammar'], language: string): Promise<GrammarIssue[]> {
   const url = `${cfg.languageToolUrl.replace(/\/+$/, '')}/v2/check`;
-  const body = new URLSearchParams({ text, language: cfg.language || 'auto' });
+  const body = new URLSearchParams({ text, language });
   let res: Response;
   try {
     res = await fetch(url, { method: 'POST', body, headers: { 'content-type': 'application/x-www-form-urlencoded' } });

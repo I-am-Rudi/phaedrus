@@ -74,9 +74,9 @@ const backend: Backend = {
     },
   },
   coach: {
-    async extract(sources, name, kind) {
+    async extract(sources, name, kind, language) {
       const takenIds = (await store.listProfiles()).map((p) => p.id);
-      return extractProfile(await llm(), sources, { name, kind, takenIds });
+      return extractProfile(await llm(), sources, { name, kind, language, takenIds });
     },
     diff: async (current, incoming) => diffProfiles(current, incoming),
     checkStyle: async (req) => checkStyle(await llm(), req),
@@ -84,7 +84,7 @@ const backend: Backend = {
     blendConflicts: async (p) => findBlendConflicts(await llm(), p),
   },
   grammar: {
-    check: async (text) => checkGrammar(text, (await store.getSettings()).grammar),
+    check: async (text, language) => checkGrammar(text, (await store.getSettings()).grammar, language),
   },
   providers: {
     status: async () => providerStatus(await store.getSettings()),

@@ -48,6 +48,8 @@ export interface CheckerDeps {
   settings(): Settings;
   profiles(): { general: TasteProfile | null; project: TasteProfile | null };
   docType(): string;
+  /** The project's language, or the default. */
+  language(): string;
   onProfile(p: TasteProfile): void;
 }
 
@@ -179,17 +181,19 @@ export class Checker {
       this.dispatch({ type: 'replace', kind: 'grammar', from: 0, to: this.editor.state.doc.content.size, items: [] });
       return;
     }
-    const pending = blocks(this.editor.state.doc).filter((b) => this.appliedGrammar.get(b.index) !== hash(engine + b.text));
+    const lang = this.deps.language();
+    const keyOf = (text: string) => hash(`${engine}\u0000${lang}\u0000${text}`);
+    const pending = blocks(this.editor.state.doc).filter((b) => this.appliedGrammar.get(b.index) !== keyOf(b.text));
     if (!pending.length) return;
     this.grammarPhase = 'busy';
     this.emit();
     try {
       for (const b of pending) {
         if (gen !== this.grammarGen || this.destroyed) return;
-        const key = hash(engine + b.text);
+        const key = keyOf(b.text);
         let issues = this.grammarCache.get(key);
         if (!issues) {
-          issues = b.text.trim() ? await this.deps.backend.grammar.check(b.text) : [];
+          issues = b.text.trim() ? await this.deps.backend.grammar.check(b.text, lang) : [];
           this.grammarCache.set(key, issues);
         }
         if (gen !== this.grammarGen) return;

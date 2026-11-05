@@ -20,6 +20,7 @@ export interface ProfileSummary {
   id: string;
   name: string;
   kind: TasteProfile['kind'];
+  language?: string;
   moves: number;
   updated: string;
 }
@@ -58,14 +59,15 @@ export interface Backend {
     reveal(): Promise<void>;
   };
   coach: {
-    extract(sources: SourceDoc[], name: string, kind: TasteProfile['kind']): Promise<TasteProfile>;
+    extract(sources: SourceDoc[], name: string, kind: TasteProfile['kind'], language?: string): Promise<TasteProfile>;
     diff(current: TasteProfile, incoming: TasteProfile): Promise<DiffEntry[]>;
     checkStyle(req: StyleCheckRequest): Promise<StyleSuggestion[]>;
     editFeedback(req: EditFeedbackRequest): Promise<EditFeedback>;
     blendConflicts(profile: TasteProfile): Promise<BlendConflict[]>;
   };
   grammar: {
-    check(text: string): Promise<GrammarIssue[]>;
+    /** `language` overrides the default from Settings (the project's language). */
+    check(text: string, language?: string): Promise<GrammarIssue[]>;
   };
   providers: {
     status(): Promise<{ id: ProviderId; ok: boolean; detail: string }>;

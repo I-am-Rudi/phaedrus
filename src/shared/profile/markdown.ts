@@ -27,6 +27,7 @@ export function serializeProfile(p: TasteProfile): string {
     id: p.id,
     name: p.name,
     kind: p.kind,
+    ...(p.language ? { language: p.language } : {}),
     description: p.description,
     sources: p.sources,
     created: p.created,
@@ -114,6 +115,7 @@ export function parseProfile(text: string, fallbackId = 'profile'): TasteProfile
     id: typeof meta.id === 'string' && meta.id ? meta.id : slugify(name || fallbackId),
     name: name || fallbackId,
     kind: meta.kind === 'project' ? 'project' : 'general',
+    ...(typeof meta.language === 'string' && meta.language ? { language: meta.language } : {}),
     description: typeof meta.description === 'string' ? meta.description : '',
     sources: Array.isArray(meta.sources)
       ? meta.sources

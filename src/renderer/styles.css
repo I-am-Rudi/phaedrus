@@ -208,6 +208,7 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .split { display: grid; grid-template-columns: 260px 1fr; min-height: 0; flex: 1; }
 .list { border-right: 1px solid var(--line); background: var(--surface); overflow: auto; display: flex; flex-direction: column; }
 .list .head { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 6px; flex-wrap: wrap; }
+.list .group { padding: 10px 14px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
 .list .item { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .list .item:hover { background: var(--bg); }
 .list .item.active { background: var(--bg); box-shadow: inset 2px 0 0 var(--accent); }

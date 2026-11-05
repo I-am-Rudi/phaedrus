@@ -4,6 +4,7 @@
 
 import type { Backend, ProfileSummary, Snapshot } from '@shared/api';
 import { checkStyle, editFeedback, extractProfile, findBlendConflicts, type LLM } from '@shared/coach';
+import { harperDialectFor } from '@shared/language';
 import { hasLatex, mapBack, maskLatex } from '@shared/latex';
 import { computeMetrics, splitSentences, words } from '@shared/metrics';
 import { diffProfiles } from '@shared/profile/diff';
@@ -21,6 +22,7 @@ You might ask whether this is the right way to think about it. I do not know a b
 
 function sampleProfiles(): TasteProfile[] {
   const general = newProfile('Plain physics');
+  general.language = 'en-GB';
   general.description = 'Short declarative claims, a concrete case before the general rule, and the reader addressed directly.';
   general.sources = [{ title: 'Lecture notes (sample)', author: 'sample author' }];
   general.metrics = computeMetrics(SAMPLE_SOURCE);
@@ -56,6 +58,7 @@ function sampleProfiles(): TasteProfile[] {
     ),
   ];
   const thesis = newProfile('Thesis', 'project');
+  thesis.language = 'en-GB';
   thesis.description = 'Project-specific moves for the thesis.';
   thesis.moves = [
     newMove({
@@ -126,7 +129,8 @@ const fakeLLM: LLM = {
 };
 
 let harperLinter: Promise<any> | null = null;
-async function harperCheck(text: string): Promise<GrammarIssue[]> {
+async function harperCheck(text: string, language: string): Promise<GrammarIssue[]> {
+  if (!harperDialectFor(language, 'british')) return [];
   if (!hasLatex(text)) return harperRaw(text);
   const masked = maskLatex(text);
   return mapBack(masked, text, await harperRaw(masked.text));
@@ -166,7 +170,8 @@ export function createMockBackend(): Backend {
     codexCli: { binary: 'codex', model: '' },
     grammar: { engine: 'harper', languageToolUrl: 'http://localhost:8081', language: 'auto', harperDialect: 'british' },
     profilesDir: '(in memory)',
-    activeGeneralProfile: 'plain-physics',
+    activeGeneralProfile: null,
+    generalByLanguage: { en: 'plain-physics' },
     activeProjectProfile: 'thesis',
     mode: 'assistant',
     dictionary: [],
@@ -213,7 +218,7 @@ export function createMockBackend(): Backend {
       list: async () =>
         [...profiles.keys()].map((id): ProfileSummary => {
           const p = get(id);
-          return { id, name: p.name, kind: p.kind, moves: p.moves.length, updated: p.updated };
+          return { id, name: p.name, kind: p.kind, language: p.language, moves: p.moves.length, updated: p.updated };
         }),
       get: async (id) => get(id),
       save: async (p, reason) => save(p, reason),
@@ -244,13 +249,13 @@ export function createMockBackend(): Backend {
       reveal: async () => {},
     },
     coach: {
-      extract: (sources, name, kind) => extractProfile(fakeLLM, sources, { name, kind, takenIds: [...profiles.keys()] }),
+      extract: (sources, name, kind, language) => extractProfile(fakeLLM, sources, { name, kind, language, takenIds: [...profiles.keys()] }),
       diff: async (a, b) => diffProfiles(a, b),
       checkStyle: (req) => checkStyle(fakeLLM, req),
       editFeedback: (req) => editFeedback(fakeLLM, req),
       blendConflicts: (p) => findBlendConflicts(fakeLLM, p),
     },
-    grammar: { check: (text) => harperCheck(text) },
+    grammar: { check: (text, language) => harperCheck(text, language || settings.grammar.language) },
     providers: {
       status: async () => ({ id: settings.provider, ok: true, detail: 'mock backend (browser preview)' }),
       login: async () => 'Sign-in is only available in the desktop app.',

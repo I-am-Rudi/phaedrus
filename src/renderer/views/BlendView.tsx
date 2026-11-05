@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { blendProfiles, resolveConflict, type ConflictChoice } from '@shared/profile/blend';
+import { baseLabel, baseLanguage, languageMatches } from '@shared/language';
 import type { BlendConflict, TasteProfile } from '@shared/types';
 import { errorText, plural, useApp } from '../state';
 
@@ -15,12 +16,15 @@ export function BlendView() {
   const { backend, summaries } = app;
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [name, setName] = useState('Blend');
+  const [base, setBase] = useState<string | null>(baseLanguage(app.language));
+  const bases = [...new Set(summaries.map((s) => baseLanguage(s.language)))];
+  const candidates = summaries.filter((s) => languageMatches(s.language, base ?? undefined) && (base === null ? !s.language : true));
   const [draft, setDraft] = useState<TasteProfile | null>(null);
   const [conflicts, setConflicts] = useState<(BlendConflict & { choice: ConflictChoice })[]>([]);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
 
-  const chosen = Object.entries(weights).filter(([, w]) => w > 0);
+  const chosen = Object.entries(weights).filter(([id, w]) => w > 0 && candidates.some((c) => c.id === id));
   const total = chosen.reduce((a, [, w]) => a + w, 0) || 1;
 
   async function blend() {
@@ -28,6 +32,8 @@ export function BlendView() {
     try {
       const inputs = await Promise.all(chosen.map(async ([id, weight]) => ({ profile: await backend.profiles.get(id), weight })));
       const r = blendProfiles(inputs, name, summaries.map((s) => s.id));
+      const lang = inputs.map((i) => i.profile.language).find(Boolean);
+      if (lang) r.profile.language = lang;
       setDraft(r.profile);
       setConflicts(r.conflicts.map((c) => ({ ...c, choice: 'merge' as ConflictChoice })));
     } catch (e) {
@@ -67,8 +73,17 @@ export function BlendView() {
         <p className="muted" style={{ margin: 0 }}>
           Combine profiles with weights, for example 70 % one author's rhythm and 30 % another's precision. Moves keep their own weight, scaled by the profile's share.
         </p>
+        <div className="row">
+          <span className="small muted">Profiles in</span>
+          <div className="seg">
+            {bases.map((b) => (
+              <button key={b ?? 'any'} className={b === base ? 'on' : ''} onClick={() => { setBase(b); setDraft(null); }}>{baseLabel(b)}</button>
+            ))}
+          </div>
+          <span className="small muted">Only profiles of one language can be blended.</span>
+        </div>
         <div className="section">
-          {summaries.map((s) => (
+          {candidates.map((s) => (
             <div className="row" key={s.id}>
               <span style={{ width: 220 }}>{s.name} <span className="small muted">{plural(s.moves, 'move')}</span></span>
               <input type="range" className="grow" min={0} max={100} step={5} value={(weights[s.id] ?? 0) * 100} onChange={(e) => setWeights({ ...weights, [s.id]: Number(e.target.value) / 100 })} />

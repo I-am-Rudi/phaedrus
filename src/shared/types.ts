@@ -78,6 +78,12 @@ export interface TasteProfile {
   id: string;
   name: string;
   kind: 'general' | 'project';
+  /**
+   * Language code. For a project profile: the document language (unset = the
+   * default in Settings). For a general profile: the language it applies to
+   * (unset = any language).
+   */
+  language?: string;
   description: string;
   sources: SourceRef[];
   metrics?: StyleMetrics;
@@ -146,12 +152,16 @@ export interface Settings {
   grammar: {
     engine: GrammarEngineId;
     languageToolUrl: string;
+    /** Default language; a project profile's language overrides it. */
     language: string;
     harperDialect: 'american' | 'british' | 'australian' | 'canadian';
   };
   /** Folder holding profile .md files; can be shared with other tools. */
   profilesDir: string;
+  /** General profile used when the document language has no specific choice. */
   activeGeneralProfile: string | null;
+  /** Chosen general profile per base language ("en", "de", ...). */
+  generalByLanguage: Record<string, string>;
   activeProjectProfile: string | null;
   mode: Mode;
   dictionary: string[];
