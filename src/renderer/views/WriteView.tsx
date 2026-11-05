@@ -166,6 +166,7 @@ export function WriteView() {
       onProfile: (p) => live.current.profileChanged(p),
     });
     checkerRef.current = c;
+    if (mock) (window as { __checker?: Checker }).__checker = c;
     c.schedule(true);
     return c;
   }, [editor, backend]);
@@ -442,6 +443,9 @@ export function WriteView() {
     const scroller = scrollParent(editor.view.dom);
     const keep = how === 'reload' ? { pos: editor.state.selection.from, top: scroller?.scrollTop ?? 0 } : null;
     frameRef.current = loaded.frame;
+    // Drop the old document's suggestions first: mapped onto the new text they
+    // would look edited, and teacher mode would ask for feedback on each.
+    checkerRef.current?.reset();
     editor.commands.setContent(loaded.doc, { emitUpdate: false });
     if (keep) {
       editor.commands.setTextSelection(Math.min(keep.pos, editor.state.doc.content.size - 1));
@@ -455,7 +459,7 @@ export function WriteView() {
     setDoc({ path: d.path, name: d.name });
     setDirty(false);
     if (how === 'open' && loaded.latex) setDocType('paper');
-    checkerRef.current?.reset();
+    checkerRef.current?.schedule(true);
     void backend.files.watch(d.path);
   }
 

@@ -168,7 +168,7 @@ export class Checker {
       for (const it of items) {
         const e = this.entries.get(it.id);
         if (e?.kind !== 'style') continue;
-        const now = this.editor.state.doc.textBetween(it.from, it.to, '\n');
+        const now = textAt(this.editor.state.doc, it.from, it.to);
         if (e.status === 'open' && now !== e.original) {
           e.status = 'revising';
           changed = true;
@@ -411,7 +411,9 @@ export class Checker {
       const category = rule ? 'rules' : 'style';
       items.push({ id, category, from, to, text: s.quote, hidden: teacher && move.hintLevel === 0 });
       this.entries.set(id, {
-        id, kind: 'style', category, s, move, original: s.quote, status: 'open',
+        // The passage as it stands in the document (with its line breaks), not the
+        // model's quote, which saw the paragraph on one line: only a real edit differs.
+        id, kind: 'style', category, s, move, original: text.slice(r.from, r.to), status: 'open',
         ...(rule ? { rule: { setId: rule.setId, ruleId: rule.id } } : {}),
       });
     }
@@ -474,18 +476,18 @@ export class Checker {
     if (e?.kind !== 'style' || !r || e.status === 'checking') return;
     e.status = 'checking';
     this.emit();
-    const revised = this.editor.state.doc.textBetween(r.from, r.to, '\n');
+    const revised = softWrap(textAt(this.editor.state.doc, r.from, r.to));
     const b = blocks(this.editor.state.doc).find((x) => r.from >= x.pos && r.from <= x.end);
     try {
       const feedback = await this.deps.backend.coach.editFeedback({
         move: e.move,
         issue: e.s.issue,
-        original: e.original,
+        original: softWrap(e.original),
         revised,
-        paragraph: b?.text ?? revised,
+        paragraph: b ? softWrap(b.text) : revised,
       });
       if (this.message.startsWith('Feedback:')) this.message = '';
-      this.feedback.unshift({ id: `f:${id}:${Date.now()}`, move: e.move, original: e.original, revised, feedback });
+      this.feedback.unshift({ id: `f:${id}:${Date.now()}`, move: e.move, original: softWrap(e.original), revised, feedback });
       this.dispatch({ type: 'remove', ids: [id] });
       this.entries.delete(id);
       if (!e.rule) await this.profileEvent({ type: 'edit', moveId: e.move.id, feedback, revised });
@@ -571,4 +573,9 @@ export function makeBatches(jobs: StyleJob[]): StyleJob[][] {
     if (cur.length) out.push(cur);
   }
   return out;
+}
+
+/** Text of a range as the checks see it: a line break inside a paragraph is "\n". */
+function textAt(doc: { textBetween(from: number, to: number, block?: string, leaf?: string): string }, from: number, to: number): string {
+  return doc.textBetween(from, to, '\n', '\n');
 }
