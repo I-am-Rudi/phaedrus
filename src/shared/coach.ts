@@ -270,7 +270,7 @@ export async function findBlendConflicts(llm: LLM, profile: TasteProfile): Promi
   const prompt = `These style moves come from different author profiles that are being blended into one.
 Find pairs of moves that pull in opposite directions (a writer could not follow both in the same passage).
 
-${profile.moves.map((m) => `- ${m.id}: ${m.title} — ${oneLine(m.description)} [${m.notes.find((n) => n.startsWith('from ')) ?? ''}]`).join('\n')}
+${profile.moves.map((m) => `- ${m.id}: ${m.title}: ${oneLine(m.description)} [${m.notes.find((n) => n.startsWith('from ')) ?? ''}]`).join('\n')}
 
 Return JSON: { "conflicts": [ { "a": "move id", "b": "move id", "reason": "one sentence" } ] }
 Return an empty list if nothing conflicts.`;

@@ -47,7 +47,7 @@ export function diffProfiles(current: TasteProfile, incoming: TasteProfile): Dif
     if (contentKey(match) === contentKey(inc)) {
       entries.push({ kind: 'unchanged', current: match, incoming: inc, apply: false });
     } else if (match.locked) {
-      entries.push({ kind: 'changed', current: match, incoming: inc, apply: false, note: 'locked — kept as is unless you apply it' });
+      entries.push({ kind: 'changed', current: match, incoming: inc, apply: false, note: 'locked, so kept as is unless you apply it' });
     } else {
       entries.push({ kind: 'changed', current: match, incoming: inc, apply: true });
     }
@@ -56,7 +56,7 @@ export function diffProfiles(current: TasteProfile, incoming: TasteProfile): Dif
   for (const m of current.moves) {
     if (!unmatched.has(m.id)) continue;
     const note =
-      m.origin !== 'extracted' ? `${m.origin} move — not affected by extraction` : m.locked ? 'locked' : 'not found in the new extraction';
+      m.origin !== 'extracted' ? `${m.origin} move, not affected by extraction` : m.locked ? 'locked' : 'not found in the new extraction';
     entries.push({ kind: 'missing', current: m, apply: false, note });
   }
   return entries;

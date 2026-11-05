@@ -48,7 +48,7 @@ Start with the claim, not with "In this section we will".
 
 > We compute the amplitude directly.
 >
-> — me
+> Source: me
 `;
     const p = parseProfile(md, 'mine');
     expect(p.name).toBe('My style');

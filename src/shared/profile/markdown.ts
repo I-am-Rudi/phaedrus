@@ -11,7 +11,7 @@
 //   ```
 //   Description paragraphs
 //   ### Why it works         <- rationale
-//   ### Examples             <- blockquotes, last line "— source" ("— me" for your own)
+//   ### Examples             <- blockquotes, last line "Source: ..." ("Source: me" for your own)
 //   ### Notes                <- bullet list
 
 import YAML from 'yaml';
@@ -58,7 +58,7 @@ function serializeMove(m: StyleMove): string[] {
     for (const ex of m.examples) {
       for (const l of ex.text.trim().split('\n')) lines.push(`> ${l}`.trimEnd());
       const attribution = ex.kind === 'user' ? USER_MARK : ex.source?.trim();
-      if (attribution) lines.push('>', `> — ${attribution}`);
+      if (attribution) lines.push('>', `> Source: ${attribution}`);
       lines.push('');
     }
   }
@@ -216,7 +216,7 @@ function parseExamples(lines: string[]): Example[] {
     .map((q) => {
       let source: string | undefined;
       const last = q[q.length - 1]?.trim() ?? '';
-      const attr = /^[—–-]{1,2}\s*(.+)$/.exec(last);
+      const attr = /^(?:source:|[—–-]{1,2})\s*(.+)$/i.exec(last);
       if (attr) {
         source = attr[1]!.trim();
         q = q.slice(0, -1);

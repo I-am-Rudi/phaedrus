@@ -42,7 +42,7 @@ Import it in stylecoach (Profiles > Import), or read and edit profile.md in any 
 export function exportBundle(p: TasteProfile, policy: ExcerptPolicy = 'all'): Uint8Array {
   const sources =
     `# Sources for ${p.name}\n\n` +
-    (p.sources.length ? p.sources.map((s) => `- ${s.title}${s.author ? ` — ${s.author}` : ''}`).join('\n') : '_none recorded_') +
+    (p.sources.length ? p.sources.map((s) => `- ${s.title}${s.author ? `, ${s.author}` : ''}`).join('\n') : '_none recorded_') +
     '\n';
   return zipSync({
     'profile.md': strToU8(exportMarkdown(p, policy)),
