@@ -3,9 +3,11 @@ import type { Snapshot } from '@shared/api';
 import { baseLabel, baseLanguage, LANGUAGES, languageLabel } from '@shared/language';
 import type { ProfileSummary } from '@shared/api';
 import type { ExcerptPolicy } from '@shared/profile/exchange';
+import { addMoves, mergeDiff, splitForAdding, type DiffEntry } from '@shared/profile/diff';
 import { newMove, newProfile } from '@shared/profile/model';
-import type { Example, HintLevel, StyleMove, TasteProfile } from '@shared/types';
+import type { Example, HintLevel, SourceDoc, StyleMove, TasteProfile } from '@shared/types';
 import { AlwaysOnSwitch } from '../AlwaysOn';
+import { SourcesEditor } from '../Sources';
 import { errorText, plural, useApp, useUnsavedGuard } from '../state';
 
 const HINT_LABELS: Record<HintLevel, string> = {
@@ -115,7 +117,7 @@ export function ProfilesView() {
             ))}
           </div>
         ))}
-        {!summaries.length && <div className="empty">No profiles yet. Extract one from authors you like, or start from scratch.</div>}
+        {!summaries.length && <div className="empty">No profiles yet. Create one with New and let it learn from authors you like, or write its moves by hand.</div>}
       </div>
       <div className="pane">
         {error && <div className="notice error">{error}</div>}
@@ -126,6 +128,17 @@ export function ProfilesView() {
             setDraft={setDraft}
             dirty={!!dirty}
             onSave={() => void save()}
+            onApply={async (p, reason) => {
+              try {
+                const s = await backend.profiles.save(p, reason);
+                setDraft(s);
+                setSaved(JSON.stringify(s));
+                app.profileChanged(s);
+                await app.refreshProfiles();
+              } catch (e) {
+                setError(errorText(e));
+              }
+            }}
             onRevert={() => setDraft(JSON.parse(saved))}
             onDeleted={async () => {
               setActiveId(null);
@@ -145,18 +158,21 @@ export function ProfilesView() {
   );
 }
 
-function ProfileEditor({ draft, setDraft, dirty, onSave, onRevert, onDeleted, onRolledBack }: {
+function ProfileEditor({ draft, setDraft, dirty, onSave, onApply, onRevert, onDeleted, onRolledBack }: {
   draft: TasteProfile;
   setDraft(p: TasteProfile): void;
   dirty: boolean;
   onSave(): void;
+  /** Save a changed profile right away (extraction results). */
+  onApply(p: TasteProfile, reason: string): Promise<void>;
   onRevert(): void;
   onDeleted(): Promise<void>;
   onRolledBack(p: TasteProfile): void;
 }) {
   const app = useApp();
   const [open, setOpen] = useState<string | null>(null);
-  const [panel, setPanel] = useState<'moves' | 'history' | 'export'>('moves');
+  // A new, empty profile opens on its sources: that is where its moves come from.
+  const [panel, setPanel] = useState<'moves' | 'sources' | 'history' | 'export'>(draft.moves.length ? 'moves' : 'sources');
   const set = (patch: Partial<TasteProfile>) => setDraft({ ...draft, ...patch });
   const setMove = (id: string, patch: Partial<StyleMove>) => set({ moves: draft.moves.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
   const usedFor = baseLanguage(draft.language);
@@ -207,11 +223,11 @@ function ProfileEditor({ draft, setDraft, dirty, onSave, onRevert, onDeleted, on
       <div className="row" style={{ borderBottom: '1px solid var(--line)', paddingBottom: 8 }}>
         <div className="seg">
           <button className={panel === 'moves' ? 'on' : ''} onClick={() => setPanel('moves')}>Moves ({draft.moves.length})</button>
+          <button className={panel === 'sources' ? 'on' : ''} onClick={() => setPanel('sources')}>Learn from sources</button>
           <button className={panel === 'history' ? 'on' : ''} onClick={() => setPanel('history')}>History</button>
           <button className={panel === 'export' ? 'on' : ''} onClick={() => setPanel('export')}>Export</button>
         </div>
         <span className="grow" />
-        <button className="btn ghost small" onClick={() => app.go('extract', draft.id)}>Re-extract from sources</button>
         <button
           className="btn ghost small danger"
           onClick={async () => {
@@ -245,6 +261,15 @@ function ProfileEditor({ draft, setDraft, dirty, onSave, onRevert, onDeleted, on
       )}
       {panel === 'history' && <History id={draft.id} dirty={dirty} onRolledBack={onRolledBack} />}
       {panel === 'export' && <Export id={draft.id} dirty={dirty} />}
+      {panel === 'sources' && (
+        <LearnFromSources
+          draft={draft}
+          onApply={async (p, reason) => {
+            await onApply(p, reason);
+            setPanel('moves');
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -440,4 +465,152 @@ function groupByLanguage(list: ProfileSummary[]): [string | null, ProfileSummary
     groups.set(b, [...(groups.get(b) ?? []), s]);
   }
   return [...groups.entries()].sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : baseLabel(a).localeCompare(baseLabel(b))));
+}
+
+// ---------------------------------------------------------------- sources
+
+type Found =
+  | { kind: 'add'; extracted: TasteProfile; fresh: (StyleMove & { pick: boolean })[]; covered: { incoming: StyleMove; existing: StyleMove; pick: boolean }[] }
+  | { kind: 'compare'; extracted: TasteProfile; entries: DiffEntry[] };
+
+/**
+ * Extract moves from writing you want to learn from, then either add the new
+ * ones to the profile (keeping everything it has) or re-extract: compare the
+ * whole extraction with the profile and choose what changes.
+ */
+function LearnFromSources({ draft, onApply }: { draft: TasteProfile; onApply(p: TasteProfile, reason: string): Promise<void> }) {
+  const { backend } = useApp();
+  const [sources, setSources] = useState<SourceDoc[]>([]);
+  const [busy, setBusy] = useState<'add' | 'compare' | null>(null);
+  const [error, setError] = useState('');
+  const [found, setFound] = useState<Found | null>(null);
+  const empty = !draft.moves.length;
+  const ready = sources.some((s) => s.text.trim());
+
+  async function run(kind: 'add' | 'compare') {
+    setBusy(kind);
+    setError('');
+    setFound(null);
+    try {
+      const extracted = await backend.coach.extract(sources.filter((s) => s.text.trim()), draft.name, draft.kind, draft.language);
+      if (kind === 'compare') setFound({ kind, extracted, entries: await backend.coach.diff(draft, extracted) });
+      else {
+        const split = splitForAdding(draft, extracted);
+        setFound({ kind, extracted, fresh: split.fresh.map((m) => ({ ...m, pick: true })), covered: split.covered.map((c) => ({ ...c, pick: false })) });
+      }
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function apply() {
+    if (!found) return;
+    if (found.kind === 'compare') await onApply(mergeDiff(draft, found.extracted, found.entries), 're-extraction');
+    else {
+      const picked = [...found.fresh.filter((m) => m.pick), ...found.covered.filter((c) => c.pick).map((c) => c.incoming)].map(({ pick: _p, ...m }: StyleMove & { pick?: boolean }) => m);
+      await onApply(addMoves(draft, found.extracted, picked), empty ? 'extraction' : 'added from sources');
+    }
+    setFound(null);
+    setSources([]);
+  }
+
+  const picks = found?.kind === 'add' ? found.fresh.filter((m) => m.pick).length + found.covered.filter((c) => c.pick).length : found?.entries.filter((e) => e.apply).length ?? 0;
+  return (
+    <div className="section">
+      <p className="small muted" style={{ margin: 0 }}>
+        Add writing you want to learn from. The model describes what it does as concrete moves. <b>Add to profile</b> keeps every move this profile has and adds the new ones;{' '}
+        <b>Re-extract and compare</b> shows what the extraction would change, add or remove, and you choose. A few thousand words per author is a good start.
+      </p>
+      <SourcesEditor sources={sources} setSources={setSources} />
+      <div className="row">
+        <button className="btn primary" disabled={!!busy || !ready} onClick={() => void run('add')}>
+          {busy === 'add' ? 'Extracting… (this can take a minute)' : empty ? 'Extract moves' : 'Add to profile'}
+        </button>
+        {!empty && (
+          <button className="btn" disabled={!!busy || !ready} onClick={() => void run('compare')}>
+            {busy === 'compare' ? 'Extracting…' : 'Re-extract and compare'}
+          </button>
+        )}
+        {error && <span className="error">{error}</span>}
+      </div>
+
+      {found?.kind === 'add' && (
+        <>
+          <div className="row">
+            <h2 className="grow">{plural(found.fresh.length, 'new move')}{found.covered.length ? `, ${found.covered.length} the profile already has` : ''}</h2>
+            <button className="btn ghost" onClick={() => setFound(null)}>Discard</button>
+            <button className="btn primary" disabled={!picks} onClick={() => void apply()}>Add {plural(picks, 'move')}</button>
+          </div>
+          {found.fresh.map((m, i) => (
+            <div className="diff-entry" key={m.id}>
+              <input type="checkbox" checked={m.pick} onChange={(e) => setFound({ ...found, fresh: found.fresh.map((x, k) => (k === i ? { ...x, pick: e.target.checked } : x)) })} />
+              <div className="grow"><MovePreview m={m} /></div>
+            </div>
+          ))}
+          {found.covered.map((c, i) => (
+            <div className="diff-entry" key={c.incoming.id + i}>
+              <input type="checkbox" checked={c.pick} onChange={(e) => setFound({ ...found, covered: found.covered.map((x, k) => (k === i ? { ...x, pick: e.target.checked } : x)) })} />
+              <span className="kindlabel kind-unchanged">covered</span>
+              <div className="grow" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <b>{c.incoming.title}</b>
+                <span className="small">{c.incoming.description}</span>
+                <span className="small muted">Like the existing move "{c.existing.title}". Tick to add it anyway.</span>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {found?.kind === 'compare' && (
+        <>
+          <div className="row">
+            <h2 className="grow">Changes against {draft.name}</h2>
+            <button className="btn ghost" onClick={() => setFound(null)}>Discard</button>
+            <button className="btn primary" onClick={() => void apply()}>Merge selected</button>
+          </div>
+          <p className="small muted" style={{ margin: 0 }}>Weights, scopes, locks, notes, hint levels and your own examples are always kept. Only ticked entries change.</p>
+          {found.entries.map((d, i) => (
+            <div className="diff-entry" key={i}>
+              <input type="checkbox" disabled={d.kind === 'unchanged'} checked={d.apply} onChange={(e) => setFound({ ...found, entries: found.entries.map((x, k) => (k === i ? { ...x, apply: e.target.checked } : x)) })} />
+              <span className={`kindlabel kind-${d.kind}`}>{d.kind === 'missing' ? 'remove?' : d.kind}</span>
+              <div className="grow" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <b>{(d.incoming ?? d.current)!.title}</b>
+                {d.kind === 'changed' ? (
+                  <div className="cmp">
+                    <div><div className="small muted">now</div>{d.current!.description}</div>
+                    <div><div className="small muted">new</div>{d.incoming!.description}</div>
+                  </div>
+                ) : (
+                  <span className="small">{(d.incoming ?? d.current)!.description}</span>
+                )}
+                {d.note && <span className="small muted">{d.note}</span>}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function MovePreview({ m }: { m: StyleMove }) {
+  return (
+    <div className="move">
+      <div className="move-head" style={{ cursor: 'default' }}>
+        <span className="title">{m.title}</span>
+        <span className="w" title={`weight ${m.weight}`}><i style={{ width: `${m.weight * 100}%` }} /></span>
+      </div>
+      <div className="move-body" style={{ gap: 6 }}>
+        <div>{m.description}</div>
+        {m.rationale && <div className="small muted">{m.rationale}</div>}
+        {m.examples.map((e, i) => (
+          <div key={i} style={{ fontFamily: 'var(--serif)', borderLeft: '2px solid var(--line-strong)', paddingLeft: 10 }}>
+            {e.text} {e.source && <span className="small muted">({e.source})</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

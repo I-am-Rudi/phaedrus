@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { baseLabel, baseLanguage, LANGUAGES } from '@shared/language';
-import { mergeRules, newRule, newRuleSet, type RuleSet, type WritingRule } from '@shared/rules';
+import { diffRules, mergeRuleDiff, mergeRules, newRule, newRuleSet, type RuleDiffEntry, type RuleSet, type WritingRule } from '@shared/rules';
 import type { SourceDoc } from '@shared/types';
 import { AlwaysOnSwitch } from '../AlwaysOn';
+import { SourcesEditor } from '../Sources';
 import { errorText, plural, useApp, useUnsavedGuard } from '../state';
 
 export function RulesView() {
   const app = useApp();
   const { backend } = app;
-  const [activeId, setActiveId] = useState<string | null>(app.ruleSummaries[0]?.id ?? null);
+  const [activeId, setActiveId] = useState<string | null>(app.viewArg ?? app.ruleSummaries[0]?.id ?? null);
   const [draft, setDraft] = useState<RuleSet | null>(null);
   const [saved, setSaved] = useState('');
   const [open, setOpen] = useState<string | null>(null);
@@ -185,12 +186,13 @@ export function RulesView() {
             ))}
 
             <ExtractRules
-              takenIds={draft.rules.map((r) => r.id)}
+              set={draft}
               onAdd={(rules, sources) => {
                 const { set: merged, skipped } = mergeRules(draft, rules, sources);
                 if (skipped.length) app.notify(`Skipped ${plural(skipped.length, 'duplicate')}: ${skipped.join(', ')}`);
                 void save(merged, 'extraction');
               }}
+              onMerge={(entries, sources) => void save(mergeRuleDiff(draft, entries, sources), 're-extraction')}
             />
           </div>
         ) : (
@@ -239,51 +241,51 @@ function RuleEditor({ r, open, toggle, set, remove }: { r: WritingRule; open: bo
   );
 }
 
-function ExtractRules({ takenIds, onAdd }: { takenIds: string[]; onAdd(rules: WritingRule[], sources: { title: string }[]): void }) {
+function ExtractRules({ set, onAdd, onMerge }: {
+  set: RuleSet;
+  onAdd(rules: WritingRule[], sources: { title: string }[]): void;
+  onMerge(entries: RuleDiffEntry[], sources: { title: string }[]): void;
+}) {
   const { backend } = useApp();
   const [docs, setDocs] = useState<SourceDoc[]>([]);
   const [found, setFound] = useState<(WritingRule & { pick: boolean })[] | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [diff, setDiff] = useState<RuleDiffEntry[] | null>(null);
+  const [busy, setBusy] = useState<'add' | 'compare' | null>(null);
   const [error, setError] = useState('');
+  const ready = docs.some((d) => d.text.trim());
+  const sources = () => docs.map((d) => ({ title: d.name }));
+
+  async function run(kind: 'add' | 'compare') {
+    setBusy(kind);
+    setError('');
+    setFound(null);
+    setDiff(null);
+    try {
+      const text = docs.filter((d) => d.text.trim());
+      // Adding: tell the model what the set has so it looks for the rest. Comparing: extract afresh.
+      const rules = await backend.coach.extractRules(text, kind === 'add' ? set.rules.map((r) => r.id) : []);
+      if (kind === 'add') setFound(rules.map((r) => ({ ...r, pick: true })));
+      else setDiff(diffRules(set, rules));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="section">
-      <div className="row">
-        <h2 className="grow">Extract rules from documents</h2>
-        <button className="btn small" onClick={async () => setDocs([...docs, ...(await backend.files.pickSources())])}>Add files</button>
-        <button className="btn small" onClick={() => setDocs([...docs, { name: `Pasted document ${docs.length + 1}`, text: '' }])}>Paste text</button>
-      </div>
+      <h2>Learn rules from documents</h2>
       <p className="small muted" style={{ margin: 0 }}>
-        For documents that state rules: a journal's author guide, a style guide, your supervisor's comments. Only rules the documents state are extracted, not their own style.
+        For documents that state rules: a journal's author guide, a style guide, your supervisor's comments. Only rules the documents state are extracted, not their own style.{' '}
+        <b>Add rules</b> keeps this set as it is and adds what is new; <b>Re-extract and compare</b> shows what would change, be added or be removed.
       </p>
-      {docs.map((d, i) => (
-        <div className="source" key={i}>
-          <div className="row">
-            <input type="text" className="grow" value={d.name} onChange={(e) => setDocs(docs.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))} />
-            <button className="btn ghost small" onClick={() => setDocs(docs.filter((_, k) => k !== i))}>Remove</button>
-          </div>
-          {d.warning && <div className="small" style={{ color: 'var(--accent-ink)' }}>{d.warning}</div>}
-          <textarea rows={4} value={d.text} placeholder="Paste the rules document" onChange={(e) => setDocs(docs.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)))} />
-        </div>
-      ))}
+      <SourcesEditor sources={docs} setSources={setDocs} withAuthor={false} placeholder="Paste the rules document" />
       <div className="row">
-        <button
-          className="btn primary"
-          disabled={busy || !docs.some((d) => d.text.trim())}
-          onClick={async () => {
-            setBusy(true);
-            setError('');
-            try {
-              const rules = await backend.coach.extractRules(docs.filter((d) => d.text.trim()), takenIds);
-              setFound(rules.map((r) => ({ ...r, pick: true })));
-            } catch (e) {
-              setError(errorText(e));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? 'Extracting…' : 'Extract rules'}
-        </button>
+        <button className="btn primary" disabled={!!busy || !ready} onClick={() => void run('add')}>{busy === 'add' ? 'Extracting…' : 'Add rules'}</button>
+        {set.rules.length > 0 && (
+          <button className="btn" disabled={!!busy || !ready} onClick={() => void run('compare')}>{busy === 'compare' ? 'Extracting…' : 'Re-extract and compare'}</button>
+        )}
         {error && <span className="error">{error}</span>}
       </div>
       {found && (
@@ -303,7 +305,7 @@ function ExtractRules({ takenIds, onAdd }: { takenIds: string[]; onAdd(rules: Wr
               className="btn primary"
               disabled={!found.some((r) => r.pick)}
               onClick={() => {
-                onAdd(found.filter((r) => r.pick).map(({ pick: _p, ...r }) => r), docs.map((d) => ({ title: d.name })));
+                onAdd(found.filter((r) => r.pick).map(({ pick: _p, ...r }) => r), sources());
                 setFound(null);
                 setDocs([]);
               }}
@@ -311,6 +313,41 @@ function ExtractRules({ takenIds, onAdd }: { takenIds: string[]; onAdd(rules: Wr
               Add {plural(found.filter((r) => r.pick).length, 'rule')}
             </button>
             <button className="btn ghost" onClick={() => setFound(null)}>Discard</button>
+          </div>
+        </>
+      )}
+      {diff && (
+        <>
+          {diff.map((d, i) => (
+            <div className="diff-entry" key={i}>
+              <input type="checkbox" disabled={d.kind === 'unchanged'} checked={d.apply} onChange={(e) => setDiff(diff.map((x, k) => (k === i ? { ...x, apply: e.target.checked } : x)))} />
+              <span className={`kindlabel kind-${d.kind}`}>{d.kind === 'missing' ? 'remove?' : d.kind}</span>
+              <div className="grow" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <b>{(d.incoming ?? d.current)!.title}</b>
+                {d.kind === 'changed' ? (
+                  <div className="cmp">
+                    <div><div className="small muted">now</div>{d.current!.description}</div>
+                    <div><div className="small muted">new</div>{d.incoming!.description}</div>
+                  </div>
+                ) : (
+                  <span className="small">{(d.incoming ?? d.current)!.description}</span>
+                )}
+                {d.note && <span className="small muted">{d.note}</span>}
+              </div>
+            </div>
+          ))}
+          <div className="row">
+            <button
+              className="btn primary"
+              onClick={() => {
+                onMerge(diff, sources());
+                setDiff(null);
+                setDocs([]);
+              }}
+            >
+              Merge selected
+            </button>
+            <button className="btn ghost" onClick={() => setDiff(null)}>Discard</button>
           </div>
         </>
       )}

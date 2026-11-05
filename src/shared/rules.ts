@@ -117,6 +117,99 @@ export function mergeRules(set: RuleSet, incoming: WritingRule[], sources: Sourc
   return { set: touch({ ...set, rules, sources: [...set.sources, ...sources.filter((s) => !known.has(key(s)))] }), skipped };
 }
 
+// ---------------------------------------------------------- re-extraction
+
+export interface RuleDiffEntry {
+  kind: 'added' | 'changed' | 'unchanged' | 'missing';
+  current?: WritingRule;
+  incoming?: WritingRule;
+  /** Apply the incoming change, add the new rule, or remove the missing one. */
+  apply: boolean;
+  note?: string;
+}
+
+const RULE_SIMILAR = 0.6;
+const ruleContent = (r: WritingRule) => [r.title, r.description, r.good.join('|'), r.bad.join('|')].join('\n').trim();
+
+/** Compare a fresh extraction with a rule set, like re-extracting a profile. */
+export function diffRules(set: RuleSet, incoming: WritingRule[]): RuleDiffEntry[] {
+  const unmatched = new Set(set.rules.map((r) => r.id));
+  const out: RuleDiffEntry[] = [];
+  for (const inc of incoming) {
+    let match: WritingRule | undefined;
+    let best = 0;
+    for (const r of set.rules) {
+      if (!unmatched.has(r.id)) continue;
+      const s = moveSimilarity(r, inc);
+      if (s >= RULE_SIMILAR && s > best) {
+        best = s;
+        match = r;
+      }
+    }
+    if (!match) {
+      out.push({ kind: 'added', incoming: inc, apply: true });
+      continue;
+    }
+    unmatched.delete(match.id);
+    if (ruleContent(match) === ruleContent(inc)) out.push({ kind: 'unchanged', current: match, incoming: inc, apply: false });
+    else out.push({ kind: 'changed', current: match, incoming: inc, apply: !match.locked, ...(match.locked ? { note: 'locked, so kept as is unless you apply it' } : {}) });
+  }
+  for (const r of set.rules) {
+    if (!unmatched.has(r.id)) continue;
+    const note = r.origin !== 'extracted' ? 'written by hand, not affected by extraction' : r.locked ? 'locked' : 'not found in the new extraction';
+    out.push({ kind: 'missing', current: r, apply: false, note });
+  }
+  return out;
+}
+
+/** Apply the chosen entries. Enabled state, lock, scope, notes and counts of existing rules stay. */
+export function mergeRuleDiff(set: RuleSet, entries: RuleDiffEntry[], sources: SourceRef[] = []): RuleSet {
+  let rules = set.rules.map((r) => structuredClone(r));
+  for (const e of entries) {
+    if (!e.apply) continue;
+    if (e.kind === 'added' && e.incoming) rules.push({ ...structuredClone(e.incoming), id: uniqueId(e.incoming.id, rules.map((r) => r.id)), origin: 'extracted' });
+    else if (e.kind === 'changed' && e.current && e.incoming) {
+      const inc = e.incoming;
+      rules = rules.map((r) => (r.id === e.current!.id ? { ...r, title: inc.title, description: inc.description, good: inc.good, bad: inc.bad, source: inc.source ?? r.source } : r));
+    } else if (e.kind === 'missing' && e.current) rules = rules.filter((r) => r.id !== e.current!.id);
+  }
+  const key = (s: SourceRef) => `${s.title}|${s.author ?? ''}`.toLowerCase();
+  const known = new Set(set.sources.map(key));
+  return touch({ ...set, rules, sources: [...set.sources, ...sources.filter((s) => !known.has(key(s)))] });
+}
+
+// ------------------------------------------------------------------ blending
+
+export interface RuleBlend {
+  set: RuleSet;
+  /** Rules that say the same as one already taken from an earlier set. */
+  overlaps: { kept: WritingRule & { from: string }; dropped: WritingRule & { from: string } }[];
+}
+
+/**
+ * Combine rule sets into one. Rules are requirements, so there are no weights:
+ * every rule is taken once, and a rule that repeats one from an earlier set is
+ * listed as an overlap (the caller may keep it anyway).
+ */
+export function blendRuleSets(sets: RuleSet[], name: string, taken: Iterable<string> = []): RuleBlend {
+  const out = newRuleSet(name, taken);
+  out.language = sets.map((s) => s.language).find(Boolean);
+  out.description = `Blend of ${sets.map((s) => s.name).join(', ')}.`;
+  const kept: (WritingRule & { from: string })[] = [];
+  const overlaps: RuleBlend['overlaps'] = [];
+  for (const s of sets) {
+    for (const r of s.rules) {
+      const twin = kept.find((k) => moveSimilarity(k, r) >= RULE_SIMILAR);
+      const tagged = { ...structuredClone(r), from: s.name };
+      if (twin) overlaps.push({ kept: twin, dropped: tagged });
+      else kept.push({ ...tagged, id: uniqueId(r.id, kept.map((k) => k.id)) });
+    }
+    for (const src of s.sources) if (!out.sources.some((x) => x.title === src.title && x.author === src.author)) out.sources.push(src);
+  }
+  out.rules = kept.map(({ from: _f, ...r }) => ({ ...r, source: r.source ?? _f, stats: { accepted: 0, rejected: 0 } }));
+  return { set: out, overlaps };
+}
+
 // ------------------------------------------------------------------ Markdown
 
 export function serializeRuleSet(s: RuleSet): string {

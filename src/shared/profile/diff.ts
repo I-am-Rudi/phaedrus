@@ -98,3 +98,48 @@ export function mergeDiff(current: TasteProfile, incoming: TasteProfile, entries
     metrics: incoming.metrics ?? current.metrics,
   });
 }
+
+export interface AddResult {
+  /** Moves of the extraction that are new to the profile. */
+  fresh: StyleMove[];
+  /** Moves the profile already has, each with the existing move it matches. */
+  covered: { incoming: StyleMove; existing: StyleMove }[];
+}
+
+/**
+ * Adding to a profile (instead of re-extracting it): split an extraction into
+ * moves the profile does not have yet and moves it already covers.
+ */
+export function splitForAdding(current: TasteProfile, incoming: TasteProfile): AddResult {
+  const out: AddResult = { fresh: [], covered: [] };
+  for (const inc of incoming.moves) {
+    let best: StyleMove | undefined;
+    let score = 0;
+    for (const m of current.moves) {
+      const s = moveSimilarity(m, inc);
+      if (s >= SIMILAR && s > score) {
+        score = s;
+        best = m;
+      }
+    }
+    if (best) out.covered.push({ incoming: inc, existing: best });
+    else out.fresh.push(inc);
+  }
+  return out;
+}
+
+/** Add the chosen moves and the new sources; everything already in the profile stays as it is. */
+export function addMoves(current: TasteProfile, incoming: TasteProfile, moves: StyleMove[]): TasteProfile {
+  const next = current.moves.map((m) => structuredClone(m));
+  for (const m of moves) next.push({ ...structuredClone(m), id: uniqueId(m.id, next.map((x) => x.id)), origin: 'extracted' });
+  const sourceKey = (s: { title: string; author?: string }) => `${s.title}|${s.author ?? ''}`.toLowerCase();
+  const known = new Set(current.sources.map(sourceKey));
+  return touch({
+    ...current,
+    description: current.description.trim() ? current.description : incoming.description,
+    moves: next,
+    sources: [...current.sources, ...incoming.sources.filter((s) => !known.has(sourceKey(s)))],
+    // Measured features describe the original sources; keep them unless there were none.
+    metrics: current.metrics ?? incoming.metrics,
+  });
+}

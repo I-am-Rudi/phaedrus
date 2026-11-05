@@ -936,7 +936,7 @@ export function WriteView() {
             {!general && !project && !app.alwaysProfiles.length && !app.ruleSets.length && (
               <div className="small muted">
                 No taste profile selected, so only spelling and grammar are checked.{' '}
-                <a href="#" onClick={(e) => (e.preventDefault(), app.go('extract'))}>Extract one</a>
+                <a href="#" onClick={(e) => (e.preventDefault(), app.go('profiles'))}>Create one from authors you like</a>
               </div>
             )}
           </div>
