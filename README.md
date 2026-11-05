@@ -164,7 +164,9 @@ Pick one in Settings.
 
 The CLI providers run in an empty folder (`<userData>/cli-sandbox`) so that no project `CLAUDE.md` or files end up in the prompt. They use your existing CLI login and never read its tokens. Check each provider's terms before relying on a subscription for this kind of use. API keys are encrypted with the OS keychain through Electron `safeStorage` when available.
 
-Style checks use the fast model, one paragraph at a time, with the neighbouring paragraphs as context. Results are cached by paragraph text, document type, section and the profile's move descriptions, so accepting a suggestion (which changes weights only) does not recheck the document.
+Style and rule checks use the fast model. The paragraph at the cursor is checked first and on its own, so the first hint arrives quickly; the rest go up to five paragraphs per request (one CLI start or API call covers several), with three requests in parallel for the CLIs and four for the APIs. Paragraphs that are waiting get a grey bar in the left margin and the ones being checked an orange one; the status bar and the panel show how many are done and how long the last request took. Settings > Send a test prompt reports the round-trip time.
+
+The Claude CLI is called lean but with your normal login: `--system-prompt` replaces Claude Code's own prompt, `--tools ""` turns off its tools, `--strict-mcp-config` with an empty `--mcp-config` keeps your MCP servers from starting, `--disable-slash-commands` and `--setting-sources project` skip skills, hooks and plugins, and `--no-session-persistence` keeps the calls out of your session history. (`--bare` would be faster still but needs an API key.) If an older CLI rejects these flags, Phaedrus falls back to a plain `claude -p` call. Results are cached by paragraph text, document type, section and the profile's move descriptions, so accepting a suggestion (which changes weights only) does not recheck the document.
 
 ### Spelling and grammar
 

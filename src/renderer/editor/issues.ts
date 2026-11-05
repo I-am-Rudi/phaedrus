@@ -21,9 +21,16 @@ export interface IssueRange {
   hidden?: boolean;
 }
 
+interface ProgressMark {
+  from: number;
+  to: number;
+  state: 'queued' | 'checking';
+}
+
 interface PluginState {
   items: IssueRange[];
   selected: string | null;
+  progress: ProgressMark[];
   decos: DecorationSet;
 }
 
@@ -32,13 +39,17 @@ export type IssueMeta =
   | { type: 'remove'; ids: string[] }
   | { type: 'select'; id: string | null }
   | { type: 'visibility'; hidden: Record<string, boolean> }
+  | { type: 'progress'; marks: ProgressMark[] }
   | { type: 'clear' };
 
 export const issuesKey = new PluginKey<PluginState>('issues');
 
 const isGrammar = (c: Category) => c === 'spelling' || c === 'grammar';
 
-function build(doc: PMNode, items: IssueRange[], selected: string | null): DecorationSet {
+function build(doc: PMNode, items: IssueRange[], selected: string | null, progress: ProgressMark[] = []): DecorationSet {
+  const marks = progress
+    .filter((m) => doc.nodeAt(m.from)?.nodeSize === m.to - m.from)
+    .map((m) => Decoration.node(m.from, m.to, { class: `para-${m.state}` }));
   const decos = items
     .filter((i) => !i.hidden && i.from < i.to && i.to <= doc.content.size)
     .map((i) =>
@@ -47,7 +58,7 @@ function build(doc: PMNode, items: IssueRange[], selected: string | null): Decor
         'data-issue-id': i.id,
       }),
     );
-  return DecorationSet.create(doc, decos);
+  return DecorationSet.create(doc, [...marks, ...decos]);
 }
 
 function mapItems(items: IssueRange[], tr: Transaction): IssueRange[] {
@@ -70,11 +81,14 @@ export function createIssuesPlugin(onClick: (id: string | null) => void) {
   return new Plugin<PluginState>({
     key: issuesKey,
     state: {
-      init: (_, state) => ({ items: [], selected: null, decos: DecorationSet.create(state.doc, []) }),
+      init: (_, state) => ({ items: [], selected: null, progress: [], decos: DecorationSet.create(state.doc, []) }),
       apply(tr, prev) {
         const meta = tr.getMeta(issuesKey) as IssueMeta | undefined;
         let items = tr.docChanged ? mapItems(prev.items, tr) : prev.items;
         let selected = prev.selected;
+        let progress = tr.docChanged
+          ? prev.progress.map((m) => ({ ...m, from: tr.mapping.map(m.from, 1), to: tr.mapping.map(m.to, -1) }))
+          : prev.progress;
         if (meta?.type === 'replace') {
           const keep = items.filter(
             (i) => (meta.kind === 'grammar' ? !isGrammar(i.category) : isGrammar(i.category)) || i.to <= meta.from || i.from >= meta.to,
@@ -88,10 +102,13 @@ export function createIssuesPlugin(onClick: (id: string | null) => void) {
           items = items.map((i) => (i.id in meta.hidden ? { ...i, hidden: meta.hidden[i.id] } : i));
         } else if (meta?.type === 'clear') {
           items = [];
+          progress = [];
+        } else if (meta?.type === 'progress') {
+          progress = meta.marks;
         }
         if (selected && !items.some((i) => i.id === selected)) selected = null;
         if (!tr.docChanged && !meta) return prev;
-        return { items, selected, decos: build(tr.doc, items, selected) };
+        return { items, selected, progress, decos: build(tr.doc, items, selected, progress) };
       },
     },
     props: {

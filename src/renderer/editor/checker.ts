@@ -79,6 +79,13 @@ export class Checker {
   private appliedStyle = new Map<number, string>();
   private dismissed = new Set<string>();
   private grammarGen = 0;
+  /** Style checks per paragraph key that are waiting or running. */
+  private pending = new Map<string, 'queued' | 'checking'>();
+  private inflight = new Set<string>();
+  private blockKeys = new Map<number, string>();
+  private progressTotal = 0;
+  /** Duration of the last style request, ms. */
+  lastStyleMs = 0;
   private styleGen = 0;
   private grammarTimer: number | undefined;
   private styleTimer: number | undefined;
@@ -262,6 +269,7 @@ export class Checker {
     // Work out each block's section and the moves that apply there.
     let section = '';
     const ruleSets = this.deps.ruleSets();
+    this.blockKeys.clear();
     const jobs: { b: BlockInfo; moves: StyleMove[]; rules: ReturnType<typeof activeRules>; section: string; key: string }[] = [];
     for (const b of bs) {
       const db: DocBlock = b.type === 'heading' ? { type: 'heading', level: b.level, text: b.text } : { type: 'paragraph', text: b.text };
@@ -274,48 +282,107 @@ export class Checker {
       const movesKey = moves.map((m) => `${m.id}:${m.title}:${m.description}:${m.notes.length}`).join('|');
       const rulesKey = rules.map((r) => `${r.key}:${r.description}:${r.notes.length}`).join('|');
       const key = hash([b.text, docType, section, movesKey, rulesKey].join('\u0000'));
+      this.blockKeys.set(b.index, key);
       if (this.appliedStyle.get(b.index) === key) continue;
       jobs.push({ b, moves, rules, section, key });
     }
-    if (!jobs.length) return;
+    // Results still on their way count as done for this round.
+    const fresh = jobs.filter((j) => !this.inflight.has(j.key));
+    // Forget queued work from an older round; requests already running stay visible.
+    for (const k of [...this.pending.keys()]) if (!this.inflight.has(k)) this.pending.delete(k);
+    for (const j of fresh) this.pending.set(j.key, 'queued');
+    if (!fresh.length) return this.emitProgress();
 
-    // Paragraphs near the cursor first.
+    // The paragraph at the cursor goes alone, so the first hint comes quickly.
+    // The rest go in batches of paragraphs that share moves and rules.
     const head = this.editor.state.selection.head;
-    jobs.sort((x, y) => Math.abs(x.b.pos - head) - Math.abs(y.b.pos - head));
-
+    fresh.sort((x, y) => Math.abs(x.b.pos - head) - Math.abs(y.b.pos - head));
+    const batches = makeBatches(fresh);
+    this.progressTotal = fresh.length;
     this.stylePhase = 'busy';
-    this.emit();
-    try {
-      for (const job of jobs) {
+    this.emitProgress();
+
+    const metrics = general?.metrics ?? project?.metrics;
+    const concurrency = this.deps.settings().provider.endsWith('-cli') ? 3 : 4;
+    const worker = async () => {
+      for (;;) {
         if (gen !== this.styleGen || this.destroyed) return;
-        let suggestions = this.styleCache.get(job.key);
-        if (!suggestions) {
+        const batch = batches.shift();
+        if (!batch) return;
+        const cached = batch.every((j) => this.styleCache.has(j.key));
+        let results: Record<string, StyleSuggestion[]> = {};
+        if (!cached) {
+          for (const j of batch) {
+            this.pending.set(j.key, 'checking');
+            this.inflight.add(j.key);
+          }
+          this.emitProgress();
           const all = blocks(this.editor.state.doc);
-          const neighbour = (d: number) => {
-            const n = all[job.b.index + d];
-            return n && n.type === 'paragraph' ? n.text : undefined;
-          };
-          suggestions = await this.deps.backend.coach.checkStyle({
-            paragraph: job.b.text,
-            before: neighbour(-1),
-            after: neighbour(1),
-            moves: job.moves,
-            rules: job.rules,
-            docType,
-            section: job.section,
-            metrics: general?.metrics ?? project?.metrics,
-          });
-          this.styleCache.set(job.key, suggestions);
+          const first = batch.reduce((m, j) => (j.b.index < m.b.index ? j : m), batch[0]!);
+          const last = batch.reduce((m, j) => (j.b.index > m.b.index ? j : m), batch[0]!);
+          const near = (i: number) => (all[i] && all[i]!.type === 'paragraph' ? all[i]!.text : undefined);
+          const started = performance.now();
+          try {
+            results = await this.deps.backend.coach.checkStyleBatch({
+              paragraphs: batch.map((j) => ({ id: j.key, text: j.b.text, section: j.section })),
+              before: near(first.b.index - 1),
+              after: near(last.b.index + 1),
+              moves: batch[0]!.moves,
+              rules: batch[0]!.rules,
+              docType,
+              metrics,
+            });
+          } finally {
+            for (const j of batch) this.inflight.delete(j.key);
+          }
+          this.lastStyleMs = performance.now() - started;
+          for (const j of batch) this.styleCache.set(j.key, results[j.key] ?? []);
         }
-        if (gen !== this.styleGen) return;
-        this.applyStyle(job.b.text, job.b.index, suggestions, job.moves, job.rules, job.key);
+        for (const j of batch) {
+          this.pending.delete(j.key);
+          // Apply even if a newer round started: the text is matched again, so stale results never land.
+          this.applyStyle(j.b.text, j.b.index, this.styleCache.get(j.key) ?? [], j.moves, j.rules, j.key);
+        }
+        this.emitProgress();
       }
-      this.stylePhase = 'idle';
-      if (this.message.startsWith('Style:')) this.message = '';
+    };
+
+    try {
+      await Promise.all(Array.from({ length: Math.min(concurrency, batches.length) }, worker));
+      if (gen === this.styleGen) {
+        this.stylePhase = 'idle';
+        if (this.message.startsWith('Style:')) this.message = '';
+      }
     } catch (e) {
+      this.pending.clear();
       this.stylePhase = 'error';
       this.message = 'Style: ' + clean(e);
     }
+    this.emitProgress();
+  }
+
+  /** Style/rule checks still waiting or running, for the indicator. */
+  get styleProgress(): { waiting: number; checking: number; total: number } {
+    let waiting = 0;
+    let checking = 0;
+    for (const s of this.pending.values()) (s === 'checking' ? checking++ : waiting++);
+    return { waiting, checking, total: this.progressTotal };
+  }
+
+  /** Mark paragraphs that are waiting or being checked, and tell the UI. */
+  private emitProgress() {
+    if (this.destroyed || this.editor.isDestroyed) return;
+    const marks: { from: number; to: number; state: 'queued' | 'checking' }[] = [];
+    if (this.pending.size) {
+      for (const b of blocks(this.editor.state.doc)) {
+        for (const [key, state] of this.pending) {
+          if (this.blockKeys.get(b.index) === key) marks.push({ from: b.pos, to: b.end, state });
+        }
+      }
+    }
+    if (!this.pending.size) this.progressTotal = 0;
+    if (!this.pending.size && !this.inflight.size && this.stylePhase === 'busy') this.stylePhase = 'idle';
+    this.dispatch({ type: 'progress', marks });
     this.emit();
   }
 
@@ -468,4 +535,37 @@ function ruleAsMove(rule: ReturnType<typeof activeRules>[number]): StyleMove {
     examples: rule.good.map((g) => ({ text: g, kind: 'author' as const })),
     notes: rule.notes,
   });
+}
+
+type StyleJob = { b: BlockInfo; moves: StyleMove[]; rules: ReturnType<typeof activeRules>; section: string; key: string };
+
+const BATCH_SIZE = 5;
+const BATCH_WORDS = 1500;
+
+/** First job alone; the rest grouped by identical moves and rules, a few paragraphs per request. */
+export function makeBatches(jobs: StyleJob[]): StyleJob[][] {
+  if (!jobs.length) return [];
+  const [first, ...rest] = jobs;
+  const out: StyleJob[][] = [[first!]];
+  const groups = new Map<string, StyleJob[]>();
+  for (const j of rest) {
+    const g = j.moves.map((m) => m.id).join(',') + '|' + j.rules.map((r) => r.key).join(',');
+    groups.set(g, [...(groups.get(g) ?? []), j]);
+  }
+  for (const list of groups.values()) {
+    let cur: StyleJob[] = [];
+    let words = 0;
+    for (const j of list) {
+      const w = j.b.text.split(/\s+/).length;
+      if (cur.length && (cur.length >= BATCH_SIZE || words + w > BATCH_WORDS)) {
+        out.push(cur);
+        cur = [];
+        words = 0;
+      }
+      cur.push(j);
+      words += w;
+    }
+    if (cur.length) out.push(cur);
+  }
+  return out;
 }
