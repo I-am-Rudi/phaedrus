@@ -359,7 +359,8 @@ function createWindow() {
   else void w.loadFile(join(import.meta.dirname, '../renderer/index.html'));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await store.seedDefaults().catch((e) => console.error('Could not add the built-in rule sets:', e));
   setMenu();
   createWindow();
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());

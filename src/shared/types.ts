@@ -189,4 +189,10 @@ export interface Settings {
   grammarDebounceMs: number;
   /** Open the last document again when the app starts. */
   reopenLastFile: boolean;
+  /** Rule sets checked in every document of their language, whatever the project selects. */
+  alwaysOnRules: string[];
+  /** Taste profiles checked in every document of their language, besides the chosen ones. */
+  alwaysOnProfiles: string[];
+  /** Built-in sets already put into the folders once (so deleting one is respected). */
+  seededDefaults: string[];
 }

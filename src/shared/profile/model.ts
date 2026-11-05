@@ -92,25 +92,27 @@ export function moveApplies(move: StyleMove, ctx: CheckContext): boolean {
 }
 
 /**
- * Combine the general and the project profile into the moves that apply here.
- * Project moves override general moves with the same id.
+ * Combine the profiles into the moves that apply here. Project moves override
+ * general moves with the same id, and both override always-on profiles.
  */
 export function effectiveMoves(
   general: TasteProfile | null,
   project: TasteProfile | null,
   ctx: CheckContext,
+  always: TasteProfile[] = [],
 ): StyleMove[] {
   const byId = new Map<string, StyleMove>();
+  for (const p of always) for (const m of p.moves) byId.set(m.id, m);
   for (const m of general?.moves ?? []) byId.set(m.id, m);
   for (const m of project?.moves ?? []) byId.set(m.id, m);
   return [...byId.values()].filter((m) => moveApplies(m, ctx)).sort((a, b) => b.weight - a.weight);
 }
 
 /** Find which profile (project first) owns a move id. */
-export function ownerOf(moveId: string, general: TasteProfile | null, project: TasteProfile | null): TasteProfile | null {
+export function ownerOf(moveId: string, general: TasteProfile | null, project: TasteProfile | null, always: TasteProfile[] = []): TasteProfile | null {
   if (project?.moves.some((m) => m.id === moveId)) return project;
   if (general?.moves.some((m) => m.id === moveId)) return general;
-  return null;
+  return [...always].reverse().find((p) => p.moves.some((m) => m.id === moveId)) ?? null;
 }
 
 export function touch<T extends { updated: string }>(item: T): T {

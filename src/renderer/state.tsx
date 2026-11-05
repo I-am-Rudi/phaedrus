@@ -58,8 +58,13 @@ interface AppState {
   /** A chosen general profile in another language than the document, if any. */
   generalMismatch: TasteProfile | null;
   ruleSummaries: RuleSetSummary[];
-  /** Rule sets active for the current project and language. */
+  /** Rule sets checked now: the project's selection plus the always-on sets, in this language. */
   ruleSets: RuleSet[];
+  /** Taste profiles switched to always on that apply to this language (besides general and project). */
+  alwaysProfiles: TasteProfile[];
+  /** Switch a rule set or a taste profile to always on (or back). */
+  setAlwaysOn(kind: 'rules' | 'profiles', id: string, on: boolean): Promise<void>;
+  isAlwaysOn(kind: 'rules' | 'profiles', id: string): boolean;
   activeRuleIds: string[];
   setActiveRules(ids: string[]): Promise<void>;
   refreshRules(): Promise<void>;
@@ -204,16 +209,47 @@ export function AppProvider({ backend, events, mock, initial, children }: { back
     void refreshRules();
   }, [refreshRules]);
 
+  const alwaysRuleIds = settings.alwaysOnRules ?? [];
+  const alwaysProfileIds = settings.alwaysOnProfiles ?? [];
   useEffect(() => {
     let cancelled = false;
-    const ids = activeRuleIds.filter((id) => ruleSummaries.some((r) => r.id === id && languageMatches(r.language, language)));
+    const ids = [...new Set([...activeRuleIds, ...alwaysRuleIds])].filter((id) => ruleSummaries.some((r) => r.id === id && languageMatches(r.language, language)));
     void Promise.all(ids.map((id) => backend.rules.get(id).catch(() => null))).then((sets) => {
       if (!cancelled) setRuleSets(sets.filter((s): s is RuleSet => !!s));
     });
     return () => {
       cancelled = true;
     };
-  }, [backend, activeRuleIds, ruleSummaries, language]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backend, activeRuleIds, alwaysRuleIds.join('|'), ruleSummaries, language]);
+
+  const [alwaysProfiles, setAlwaysProfiles] = useState<TasteProfile[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const ids = alwaysProfileIds.filter(
+      (id) => id !== activeGeneralId && id !== settings.activeProjectProfile && summaries.some((s) => s.id === id && languageMatches(s.language, language)),
+    );
+    void Promise.all(ids.map((id) => backend.profiles.get(id).catch(() => null))).then((ps) => {
+      if (!cancelled) setAlwaysProfiles(ps.filter((p): p is TasteProfile => !!p));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backend, alwaysProfileIds.join('|'), activeGeneralId, settings.activeProjectProfile, summaries, language]);
+
+  const setAlwaysOn = useCallback(
+    async (kind: 'rules' | 'profiles', id: string, on: boolean) => {
+      const key = kind === 'rules' ? 'alwaysOnRules' : 'alwaysOnProfiles';
+      const cur = settings[key] ?? [];
+      await updateSettings({ [key]: on ? [...new Set([...cur, id])] : cur.filter((x) => x !== id) } as Partial<Settings>);
+    },
+    [settings, updateSettings],
+  );
+  const isAlwaysOn = useCallback(
+    (kind: 'rules' | 'profiles', id: string) => (kind === 'rules' ? settings.alwaysOnRules : settings.alwaysOnProfiles)?.includes(id) ?? false,
+    [settings.alwaysOnRules, settings.alwaysOnProfiles],
+  );
 
   const setActiveRules = useCallback(
     (ids: string[]) => updateSettings({ rulesByProject: { ...settings.rulesByProject, [projectKey]: ids } }),
@@ -238,6 +274,7 @@ export function AppProvider({ backend, events, mock, initial, children }: { back
 
   const profileChanged = useCallback((p: TasteProfile) => {
     setGeneral((g) => (g?.id === p.id ? p : g));
+    setAlwaysProfiles((list) => list.map((x) => (x.id === p.id ? p : x)));
     setProject((g) => (g?.id === p.id ? p : g));
     setSummaries((list) => list.map((s) => (s.id === p.id ? { ...s, name: p.name, moves: p.moves.length, updated: p.updated } : s)));
   }, []);
@@ -337,12 +374,12 @@ export function AppProvider({ backend, events, mock, initial, children }: { back
     () => ({
       backend, events, ask, dialog, registerGuard, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged,
       language, activeGeneralId, setActiveGeneral, generalMismatch: mismatch,
-      ruleSummaries, ruleSets, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged,
+      ruleSummaries, ruleSets, alwaysProfiles, setAlwaysOn, isAlwaysOn, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged,
       view, viewArg, go, toast, notify,
       prompt, openPrompt: (prefix, onSubmit, onClose) => setPrompt({ prefix, onSubmit, onClose }), closePrompt: () => setPrompt(null),
       registerCommands, runCommand, helpOpen, setHelpOpen, leaderOpen, setLeaderOpen, leaderRef, cheatOpen, setCheatOpen,
     }),
-    [backend, events, ask, dialog, registerGuard, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, ruleSummaries, ruleSets, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen, leaderOpen, cheatOpen],
+    [backend, events, ask, dialog, registerGuard, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, ruleSummaries, ruleSets, alwaysProfiles, setAlwaysOn, isAlwaysOn, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen, leaderOpen, cheatOpen],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

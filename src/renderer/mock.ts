@@ -6,6 +6,7 @@ import type { AppEvents, Backend, ProfileSummary, Snapshot } from '@shared/api';
 import { checkStyle, checkStyleBatch, editFeedback, extractProfile, extractRules, findBlendConflicts, type LLM } from '@shared/coach';
 import { applyRuleEvent, newRule, newRuleSet, parseRuleSet, serializeRuleSet, type RuleSet } from '@shared/rules';
 import { harperDialectFor } from '@shared/language';
+import { AI_TELLS_ID, aiTellsRuleSet } from '@shared/defaults/aiTells';
 import { hasLatex, mapBack, maskLatex } from '@shared/latex';
 import { computeMetrics, splitSentences, words } from '@shared/metrics';
 import { diffProfiles } from '@shared/profile/diff';
@@ -216,7 +217,10 @@ export function createMockBackend(): Backend {
     else docs.set(name, text);
     if (name === watched) mockEvents.emit('files:changed', { path: name, text });
   };
-  const ruleSets = new Map<string, RuleSet>([[sampleRules().id, sampleRules()]]);
+  const ruleSets = new Map<string, RuleSet>([
+    [sampleRules().id, sampleRules()],
+    [AI_TELLS_ID, aiTellsRuleSet()],
+  ]);
   const history = new Map<string, { snap: Snapshot; text: string }[]>();
   for (const p of sampleProfiles()) profiles.set(p.id, serializeProfile(p));
   let settings: Settings = {
@@ -239,6 +243,9 @@ export function createMockBackend(): Backend {
     styleDebounceMs: 1200,
     grammarDebounceMs: 500,
     reopenLastFile: true,
+    alwaysOnRules: [AI_TELLS_ID],
+    alwaysOnProfiles: [],
+    seededDefaults: [AI_TELLS_ID],
   };
 
   const get = (id: string) => {
