@@ -12,6 +12,7 @@ import { parseRuleSet, serializeRuleSet, type RuleSet } from '@shared/rules';
 import type { Settings, TasteProfile } from '@shared/types';
 
 const MAX_SNAPSHOTS = 50;
+const MAX_RECENT = 12;
 
 export function defaultSettings(userData: string): Settings {
   return {
@@ -33,6 +34,7 @@ export function defaultSettings(userData: string): Settings {
     vimEscape: { sequence: '', timeoutMs: 300, ctrlC: true },
     styleDebounceMs: 2500,
     grammarDebounceMs: 700,
+    reopenLastFile: true,
   };
 }
 
@@ -106,6 +108,35 @@ export class Store {
     await mkdir(this.userData, { recursive: true });
     await atomicWrite(this.settingsFile, JSON.stringify(onDisk, null, 2));
     return next;
+  }
+
+  // ---------------------------------------------------------- recent files
+
+  private get recentFile() {
+    return join(this.userData, 'recent.json');
+  }
+
+  async recentFiles(): Promise<string[]> {
+    try {
+      const list = JSON.parse(await readFile(this.recentFile, 'utf8'));
+      return Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Move a file to the top of the recent list (most recent first, at most 12). */
+  async addRecent(path: string): Promise<string[]> {
+    const list = [path, ...(await this.recentFiles()).filter((p) => p !== path)].slice(0, MAX_RECENT);
+    await mkdir(this.userData, { recursive: true });
+    await atomicWrite(this.recentFile, JSON.stringify(list, null, 2));
+    return list;
+  }
+
+  async removeRecent(path: string): Promise<string[]> {
+    const list = (await this.recentFiles()).filter((p) => p !== path);
+    await atomicWrite(this.recentFile, JSON.stringify(list, null, 2));
+    return list;
   }
 
   private async dir(): Promise<string> {

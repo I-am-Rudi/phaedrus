@@ -226,7 +226,23 @@ In the desktop app Ctrl+W and Ctrl+R are left to the page, so they reach vim ins
 
 ## Documents
 
-The editor opens and saves `.md`, `.txt` and `.tex` as plain text. Formatting markup stays as literal text. `Ctrl/Cmd+O` opens, `Ctrl/Cmd+S` saves.
+The editor opens and saves `.md`, `.txt` and `.tex` as plain text, in place, like any text editor. Formatting markup stays as literal text.
+
+| | Keys | Vim command | Leader |
+|---|---|---|---|
+| Open | `Ctrl/Cmd+O` | `:e` or `:e ~/path/file.tex` | `SPC f o` |
+| Open recent | File menu, Recent button | `:recent` | `SPC f r` |
+| Save | `Ctrl/Cmd+S` | `:w` | `SPC f s` |
+| Save as | `Ctrl/Cmd+Shift+S` | `:saveas [name]` | `SPC f a` |
+| Reload from disk | File menu | `:e!` | `SPC f R` |
+
+The last document opens again when the app starts (Settings > Checking turns this off). The asterisk after the file name means the text differs from the file; undoing back to the saved text clears it. Windows line endings are kept.
+
+Nothing is thrown away without asking. Opening another file, quitting or closing the window with unsaved text asks *Save*, *Don't save* or *Cancel* (the letter picks the button, Enter the highlighted one, Escape cancels). Leaving Settings, a profile or a rule set with unsaved changes asks the same, and `Ctrl/Cmd+S` or `:w` saves whatever the current view edits.
+
+Phaedrus watches the open file. When another program changes it (vim, `git pull`, a LaTeX tool) and you have no unsaved edits, it reloads quietly, keeping the cursor and scroll position. With unsaved edits it asks whether to load the version on disk or keep yours. Saving also checks the file first, so a change it missed is not overwritten without asking.
+
+On macOS the window has no separate title bar: the window buttons sit at the top of the side rail, and the top bar (or the strip above the other views) moves the window.
 
 A paragraph is what TeX and Markdown mean by one: the lines up to the next blank line. Single line breaks inside it (one sentence per line, or a hard wrap at 80 columns) are source formatting, so every check reads the paragraph as one piece of text and a sentence that runs over several lines is still one sentence. The line breaks stay where they are in the editor and in the saved file.
 

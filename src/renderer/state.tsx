@@ -1,13 +1,48 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Backend, ProfileSummary, RuleSetSummary } from '@shared/api';
+import type { AppEvents, Backend, ProfileSummary, RuleSetSummary } from '@shared/api';
 import { baseLanguage, languageMatches } from '@shared/language';
 import type { RuleSet } from '@shared/rules';
 import type { Settings, TasteProfile } from '@shared/types';
 
 export type ViewId = 'write' | 'profiles' | 'rules' | 'extract' | 'blend' | 'settings';
 
+export interface AskButton {
+  label: string;
+  /** Returned by ask() when chosen. */
+  value: string;
+  /** Single key that picks this button while the dialog is open. */
+  key?: string;
+  /** Picked by Enter. */
+  primary?: boolean;
+  /** Second line, for list dialogs (e.g. the folder of a recent file). */
+  detail?: string;
+}
+
+export interface AskOptions {
+  title: string;
+  message?: string;
+  buttons: AskButton[];
+  /** Returned for Escape, Ctrl-c or a click outside. */
+  cancel: string;
+  layout?: 'row' | 'list';
+}
+
+export type AskState = AskOptions & { resolve(value: string): void };
+
+/** Something that may hold unsaved work: resolves true when it is fine to go on. */
+type Guard = { check: () => Promise<boolean>; view?: ViewId };
+
 interface AppState {
   backend: Backend;
+  events: AppEvents;
+  /** Show a small dialog; resolves with the chosen button's value. */
+  ask(opts: AskOptions): Promise<string>;
+  dialog: AskState | null;
+  /**
+   * Register a check for unsaved work. With a view, it runs when leaving that
+   * view; every guard runs before the window closes.
+   */
+  registerGuard(id: string, check: () => Promise<boolean>, view?: ViewId): () => void;
   mock: boolean;
   settings: Settings;
   updateSettings(patch: Partial<Settings>): Promise<void>;
@@ -38,8 +73,12 @@ interface AppState {
   prompt: { prefix: string; onSubmit(v: string): void; onClose?(): void } | null;
   openPrompt(prefix: string, onSubmit: (v: string) => void, onClose?: () => void): void;
   closePrompt(): void;
-  /** Commands views add for ":"; each gets the argument string. */
-  registerCommands(cmds: Record<string, (arg: string) => void>): () => void;
+  /**
+   * Commands views add for ":"; each gets the argument string. With a view,
+   * the command applies while that view is shown and wins over the general one
+   * (":w" saves settings in Settings and the document elsewhere).
+   */
+  registerCommands(cmds: Record<string, (arg: string) => void>, view?: ViewId): () => void;
   runCommand(line: string): void;
   helpOpen: boolean;
   setHelpOpen(open: boolean): void;
@@ -62,7 +101,7 @@ export function useApp(): AppState {
   return v;
 }
 
-export function AppProvider({ backend, mock, initial, children }: { backend: Backend; mock: boolean; initial: Settings; children: ReactNode }) {
+export function AppProvider({ backend, events, mock, initial, children }: { backend: Backend; events: AppEvents; mock: boolean; initial: Settings; children: ReactNode }) {
   const [settings, setSettings] = useState(initial);
   const [summaries, setSummaries] = useState<ProfileSummary[]>([]);
   const [general, setGeneral] = useState<TasteProfile | null>(null);
@@ -79,7 +118,41 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
     leaderRef.current = open;
     setLeaderOpenState(open);
   }, []);
-  const commandsRef = useRef(new Map<string, (arg: string) => void>());
+  const commandsRef = useRef(new Map<string, { fn: (arg: string) => void; view?: ViewId }[]>());
+
+  const [dialog, setDialog] = useState<AskState | null>(null);
+  const dialogRef = useRef<AskState | null>(null);
+  const ask = useCallback(
+    (opts: AskOptions) =>
+      new Promise<string>((resolve) => {
+        const prev = dialogRef.current;
+        const next: AskState = {
+          ...opts,
+          resolve: (v) => {
+            if (dialogRef.current === next) {
+              dialogRef.current = null;
+              setDialog(null);
+            }
+            resolve(v);
+          },
+        };
+        dialogRef.current = next;
+        setDialog(next);
+        prev?.resolve(prev.cancel);
+      }),
+    [],
+  );
+
+  const guardsRef = useRef(new Map<string, Guard>());
+  const registerGuard = useCallback((id: string, check: () => Promise<boolean>, v?: ViewId) => {
+    const g: Guard = { check, view: v };
+    guardsRef.current.set(id, g);
+    return () => {
+      if (guardsRef.current.get(id) === g) guardsRef.current.delete(id);
+    };
+  }, []);
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const load = useCallback(
     async (id: string | null) => (id ? backend.profiles.get(id).catch(() => null) : null),
@@ -175,16 +248,43 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
   }, []);
 
   const go = useCallback((v: ViewId, arg?: string) => {
-    setView(v);
-    setViewArg(arg);
+    const from = viewRef.current;
+    void (async () => {
+      if (v !== from) {
+        for (const g of [...guardsRef.current.values()]) if (g.view === from && !(await g.check())) return;
+      }
+      setView(v);
+      setViewArg(arg);
+    })();
   }, []);
 
-  const registerCommands = useCallback((cmds: Record<string, (arg: string) => void>) => {
-    for (const [k, f] of Object.entries(cmds)) commandsRef.current.set(k, f);
+  // Closing the window: give every guard the chance to save or cancel.
+  useEffect(
+    () =>
+      events.onCloseRequested(async () => {
+        for (const g of [...guardsRef.current.values()]) {
+          if (!(await g.check())) return events.answerClose(false);
+        }
+        events.answerClose(true);
+      }),
+    [events],
+  );
+
+  const registerCommands = useCallback((cmds: Record<string, (arg: string) => void>, v?: ViewId) => {
+    const added: [string, { fn: (arg: string) => void; view?: ViewId }][] = [];
+    for (const [k, fn] of Object.entries(cmds)) {
+      const entry = { fn, view: v };
+      commandsRef.current.set(k, [...(commandsRef.current.get(k) ?? []), entry]);
+      added.push([k, entry]);
+    }
     return () => {
-      for (const k of Object.keys(cmds)) commandsRef.current.delete(k);
+      for (const [k, entry] of added) commandsRef.current.set(k, (commandsRef.current.get(k) ?? []).filter((e) => e !== entry));
     };
   }, []);
+  const lookup = (name: string) => {
+    const list = commandsRef.current.get(name) ?? [];
+    return (list.findLast((e) => e.view === viewRef.current) ?? list.findLast((e) => !e.view))?.fn;
+  };
 
   const runCommand = useCallback(
     (line: string) => {
@@ -193,7 +293,7 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
       const [name = '', ...rest] = trimmed.split(/\s+/);
       const arg = rest.join(' ');
       const views: Record<string, ViewId> = { write: 'write', profiles: 'profiles', rules: 'rules', extract: 'extract', blend: 'blend', settings: 'settings' };
-      const own = commandsRef.current.get(name);
+      const own = lookup(name);
       if (own) return own(arg);
       if (views[name]) return go(views[name]!);
       if (name === 'h' || name === 'help') return setHelpOpen(true);
@@ -203,7 +303,7 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
         const [k, v = ''] = arg.split('=');
         if (k === 'novim') return void updateSettings({ vim: false });
         if (k === 'mode' && (v === 'teacher' || v === 'assistant')) return void updateSettings({ mode: v });
-        const own2 = commandsRef.current.get(k ?? '');
+        const own2 = lookup(k ?? '');
         if (own2) return own2(v);
       }
       if (name === 'rule' || name === 'rules-toggle') {
@@ -229,16 +329,20 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
     [go, updateSettings, summaries, setActiveGeneral, ruleSummaries, activeRuleIds, setActiveRules],
   );
 
+  const runRef = useRef(runCommand);
+  runRef.current = runCommand;
+  useEffect(() => events.onMenu((cmd) => runRef.current(cmd)), [events]);
+
   const value = useMemo<AppState>(
     () => ({
-      backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged,
+      backend, events, ask, dialog, registerGuard, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged,
       language, activeGeneralId, setActiveGeneral, generalMismatch: mismatch,
       ruleSummaries, ruleSets, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged,
       view, viewArg, go, toast, notify,
       prompt, openPrompt: (prefix, onSubmit, onClose) => setPrompt({ prefix, onSubmit, onClose }), closePrompt: () => setPrompt(null),
       registerCommands, runCommand, helpOpen, setHelpOpen, leaderOpen, setLeaderOpen, leaderRef, cheatOpen, setCheatOpen,
     }),
-    [backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, ruleSummaries, ruleSets, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen, leaderOpen, cheatOpen],
+    [backend, events, ask, dialog, registerGuard, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, ruleSummaries, ruleSets, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen, leaderOpen, cheatOpen],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -251,4 +355,32 @@ export function errorText(e: unknown): string {
 
 export function plural(n: number, word: string): string {
   return `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * Unsaved work in a view: asks Save / Don't save / Cancel when leaving the view
+ * or closing the window. Returns the same check for switching items inside the view.
+ */
+export function useUnsavedGuard(id: string, view: ViewId, dirty: boolean, title: string, save: () => Promise<boolean | void>) {
+  const app = useApp();
+  const live = useRef({ dirty, title, save });
+  live.current = { dirty, title, save };
+  const { ask, registerGuard } = app;
+  const check = useCallback(async () => {
+    if (!live.current.dirty) return true;
+    const v = await ask({
+      title: live.current.title,
+      message: 'If you do not save, your changes are lost.',
+      buttons: [
+        { label: 'Save', value: 'save', key: 's', primary: true },
+        { label: "Don't save", value: 'discard', key: 'd' },
+        { label: 'Cancel', value: 'cancel', key: 'c' },
+      ],
+      cancel: 'cancel',
+    });
+    if (v === 'save') return (await live.current.save()) !== false;
+    return v === 'discard';
+  }, [ask]);
+  useEffect(() => registerGuard(id, check, view), [registerGuard, check, id, view]);
+  return check;
 }

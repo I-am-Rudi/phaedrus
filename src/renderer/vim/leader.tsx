@@ -35,7 +35,10 @@ export function useLeaderTree(): LeaderNode[] {
       {
         key: 'f', label: 'file', children: [
           { key: 's', label: 'save', run: cmd('w') },
+          { key: 'a', label: 'save as', run: cmd('saveas') },
           { key: 'o', label: 'open', run: cmd('e') },
+          { key: 'r', label: 'open recent', run: cmd('recent') },
+          { key: 'R', label: 'reload from disk', run: cmd('e!') },
         ],
       },
       {

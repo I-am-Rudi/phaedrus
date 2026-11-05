@@ -1,4 +1,5 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, unwatchFile, watchFile, writeFileSync, type Stats } from 'node:fs';
+import { homedir } from 'node:os';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell } from 'electron';
@@ -49,6 +50,32 @@ function migrateFromGorgias() {
     }
     return;
   }
+}
+
+function expandHome(p: string): string {
+  return p === '~' || p.startsWith('~/') ? join(homedir(), p.slice(1)) : p;
+}
+
+// ------------------------------------------------- watching the open file
+// Polling by path (fs.watchFile) also sees editors that save by writing a new
+// file and renaming it over the old one, which vim and most IDEs do.
+
+let watched: string | null = null;
+const onWatched = (curr: Stats, prev: Stats) => {
+  if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size) return;
+  const path = watched;
+  if (!path) return;
+  void readFile(path, 'utf8')
+    .catch(() => null)
+    .then((text) => {
+      if (watched !== path) return;
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('files:changed', { path, text });
+    });
+};
+function watchDocument(path: string | null) {
+  if (watched) unwatchFile(watched, onWatched);
+  watched = path;
+  if (path) watchFile(path, { interval: 800 }, onWatched);
 }
 
 const TEXT_FILTERS = [{ name: 'Text', extensions: ['md', 'markdown', 'txt', 'tex'] }];
@@ -178,21 +205,41 @@ const backend: Backend = {
       }
       return docs;
     },
-    async openDocument() {
-      const { canceled, filePaths } = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters: TEXT_FILTERS });
-      const f = filePaths[0];
-      if (canceled || !f) return null;
-      return { path: f, name: basename(f), text: await readFile(f, 'utf8') };
+    async openDocument(path) {
+      let f = path ? expandHome(path) : undefined;
+      if (!f) {
+        const { canceled, filePaths } = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters: TEXT_FILTERS });
+        if (canceled || !filePaths[0]) return null;
+        f = filePaths[0];
+      }
+      const text = await readFile(f, 'utf8');
+      await store.addRecent(f);
+      return { path: f, name: basename(f), text };
     },
-    async saveDocument(path, text) {
-      let target = path;
-      if (!target) {
-        const r = await dialog.showSaveDialog(win(), { defaultPath: 'untitled.md', filters: TEXT_FILTERS });
+    async saveDocument(path, text, opts = {}) {
+      let target = path ? expandHome(path) : null;
+      if (!target || opts.saveAs) {
+        const r = await dialog.showSaveDialog(win(), { defaultPath: target ?? 'untitled.md', filters: TEXT_FILTERS });
         if (r.canceled || !r.filePath) return null;
         target = r.filePath;
+      } else if (opts.base !== undefined) {
+        // Changed by another program since we read it? Then do not overwrite silently.
+        let current: string | null = null;
+        try {
+          current = await readFile(target, 'utf8');
+        } catch {
+          current = null;
+        }
+        if (current !== null && current !== opts.base) return { conflict: current };
       }
       await writeFile(target, text);
-      return target;
+      await store.addRecent(target);
+      return { path: target };
+    },
+    recent: () => store.recentFiles(),
+    forgetRecent: (path) => store.removeRecent(path),
+    async watch(path) {
+      watchDocument(path ? expandHome(path) : null);
     },
   },
 };
@@ -209,11 +256,29 @@ for (const [group, methods] of Object.entries(backend)) {
  * Linux and Windows, which would swallow vim's Ctrl-w and Ctrl-r. This menu keeps
  * the usual entries but puts reload on F5 and leaves Ctrl+W and Ctrl+R to the page.
  */
+function menuCommand(command: string) {
+  win()?.webContents.send('menu:command', command);
+}
+
 function setMenu() {
   const mac = process.platform === 'darwin';
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(mac ? [{ role: 'appMenu' as const }] : []),
-    { label: 'File', submenu: [mac ? { role: 'close' } : { role: 'quit', accelerator: 'Ctrl+Q' }] },
+    {
+      label: 'File',
+      submenu: [
+        // The page handles these keys itself (they also work in the browser preview);
+        // the menu only shows them.
+        { label: 'Open…', accelerator: 'CmdOrCtrl+O', registerAccelerator: false, click: () => menuCommand('e') },
+        { label: 'Open Recent…', click: () => menuCommand('recent') },
+        { label: 'Reload from Disk', click: () => menuCommand('e!') },
+        { type: 'separator' },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', registerAccelerator: false, click: () => menuCommand('w') },
+        { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', registerAccelerator: false, click: () => menuCommand('saveas') },
+        { type: 'separator' },
+        mac ? { role: 'close' } : { role: 'quit', accelerator: 'Ctrl+Q' },
+      ],
+    },
     { role: 'editMenu' },
     {
       label: 'View',
@@ -241,8 +306,51 @@ function createWindow() {
     minHeight: 600,
     title: 'Phaedrus',
     backgroundColor: '#fafafa',
+    // macOS: no title bar; the window buttons sit in the top of the side rail
+    // and the app's own top bar is the drag area.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 14, y: 17 } } : {}),
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.mjs'), sandbox: false, contextIsolation: true },
   });
+  // Ask the page before closing, so unsaved work can be saved. If the page does
+  // not answer (it failed to load or crashed), close anyway after a moment.
+  let closeOk = false;
+  w.on('close', (e) => {
+    if (closeOk || w.webContents.isCrashed()) return;
+    e.preventDefault();
+    let acked = false;
+    const onAck = (ev: Electron.IpcMainEvent) => ev.sender === w.webContents && (acked = true);
+    ipcMain.on('app:close-ack', onAck);
+    w.webContents.send('app:close-requested');
+    setTimeout(() => {
+      ipcMain.removeListener('app:close-ack', onAck);
+      if (!acked) {
+        closeOk = true;
+        if (quitting) app.quit();
+        else w.close();
+      }
+    }, 1500);
+  });
+  const onAnswer = (ok: boolean) => (ev: Electron.IpcMainEvent) => {
+    if (ev.sender !== w.webContents) return;
+    if (!ok) {
+      quitting = false;
+      return;
+    }
+    closeOk = true;
+    if (quitting) app.quit();
+    else w.close();
+  };
+  const okHandler = onAnswer(true);
+  const cancelHandler = onAnswer(false);
+  ipcMain.on('app:close-ok', okHandler);
+  ipcMain.on('app:close-cancel', cancelHandler);
+  w.on('closed', () => {
+    ipcMain.removeListener('app:close-ok', okHandler);
+    ipcMain.removeListener('app:close-cancel', cancelHandler);
+  });
+  // In full screen macOS hides the window buttons; the layout drops their space.
+  w.on('enter-full-screen', () => w.webContents.send('window:fullscreen', true));
+  w.on('leave-full-screen', () => w.webContents.send('window:fullscreen', false));
   w.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
@@ -257,3 +365,7 @@ app.whenReady().then(() => {
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());
 });
 app.on('window-all-closed', () => process.platform !== 'darwin' && app.quit());
+let quitting = false;
+app.on('before-quit', () => {
+  quitting = true;
+});

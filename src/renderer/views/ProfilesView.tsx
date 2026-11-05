@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Snapshot } from '@shared/api';
 import { baseLabel, baseLanguage, LANGUAGES, languageLabel } from '@shared/language';
 import type { ProfileSummary } from '@shared/api';
 import type { ExcerptPolicy } from '@shared/profile/exchange';
 import { newMove, newProfile } from '@shared/profile/model';
 import type { Example, HintLevel, StyleMove, TasteProfile } from '@shared/types';
-import { errorText, plural, useApp } from '../state';
+import { errorText, plural, useApp, useUnsavedGuard } from '../state';
 
 const HINT_LABELS: Record<HintLevel, string> = {
   3: 'Specific hint',
@@ -53,10 +53,16 @@ export function ProfilesView() {
       setSaved(JSON.stringify(p));
       app.profileChanged(p);
       await app.refreshProfiles();
+      return true;
     } catch (e) {
       setError(errorText(e));
+      return false;
     }
   }
+  const confirmLeave = useUnsavedGuard('profile', 'profiles', !!dirty, `Save changes to ${draft?.name ?? 'the profile'}?`, () => save());
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  useEffect(() => app.registerCommands({ w: () => void saveRef.current() }, 'profiles'), [app.registerCommands]);
 
   async function create(kind: TasteProfile['kind']) {
     const p = newProfile(kind === 'project' ? 'New project profile' : 'New profile', kind, summaries.map((s) => s.id));
@@ -95,7 +101,7 @@ export function ProfilesView() {
                 tabIndex={0}
                 data-activate
                 className={`item${s.id === activeId ? ' active' : ''}`}
-                onClick={() => (dirty && !confirm('Discard unsaved changes?') ? null : setActiveId(s.id))}
+                onClick={() => void confirmLeave().then((ok) => ok && setActiveId(s.id))}
               >
                 <div className="name">{s.name}</div>
                 <div className="row small muted">

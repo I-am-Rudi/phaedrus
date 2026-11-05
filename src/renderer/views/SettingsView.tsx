@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LANGUAGES } from '@shared/language';
 import { THEME_OPTIONS, THEMES } from '../themes';
 import type { ProviderId, Settings } from '@shared/types';
-import { errorText, useApp } from '../state';
+import { errorText, useApp, useUnsavedGuard } from '../state';
 
 const PROVIDERS: [ProviderId, string, string][] = [
   ['claude-cli', 'Claude subscription', 'Runs the Claude Code CLI (claude -p) in the background with its existing login.'],
@@ -23,6 +23,20 @@ export function SettingsView() {
   const patch = <K extends keyof Settings>(k: K, v: Partial<Settings[K]>) =>
     setS({ ...s, [k]: typeof v === 'object' && !Array.isArray(v) ? { ...(s[k] as object), ...v } : v });
 
+  async function saveSettings() {
+    try {
+      await app.updateSettings(s);
+      return true;
+    } catch (e) {
+      setStatus(errorText(e));
+      return false;
+    }
+  }
+  useUnsavedGuard('settings', 'settings', dirty, 'Save your settings?', saveSettings);
+  const saveRef = useRef(saveSettings);
+  saveRef.current = saveSettings;
+  useEffect(() => app.registerCommands({ w: () => void saveRef.current() }, 'settings'), [app.registerCommands]);
+
   async function act(label: string, fn: () => Promise<string>) {
     setBusy(true);
     setStatus(`${label}…`);
@@ -42,7 +56,7 @@ export function SettingsView() {
         <div className="row">
           <h1 className="grow">Settings</h1>
           <button className="btn" disabled={!dirty} onClick={() => setS(settings)}>Revert</button>
-          <button className="btn primary" disabled={!dirty} onClick={() => void app.updateSettings(s)}>Save</button>
+          <button className="btn primary" disabled={!dirty} onClick={() => void saveSettings()} title="Save (Ctrl/Cmd+S, :w)">Save</button>
         </div>
 
         <div className="section">
@@ -207,6 +221,10 @@ export function SettingsView() {
             <label className="field">Profiles folder<input type="text" value={s.profilesDir} onChange={(e) => setS({ ...s, profilesDir: e.target.value })} /></label>
           </div>
           <div className="small muted">Profiles are plain Markdown files. Point the folder at a git repository or a folder other tools read, such as your writing kit.</div>
+          <label className="check">
+            <input type="checkbox" checked={s.reopenLastFile ?? true} onChange={(e) => setS({ ...s, reopenLastFile: e.target.checked })} />
+            Open the last document again when Phaedrus starts
+          </label>
         </div>
       </div>
     </div>
