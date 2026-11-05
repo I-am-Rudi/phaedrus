@@ -408,7 +408,8 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 }
 .revision-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .revision-title { font-weight: 600; }
-.revision-bar .btn .kbd { font-size: 10px; margin-left: 4px; background: color-mix(in srgb, var(--on-accent) 22%, transparent); color: var(--on-accent); }
+.revision-bar .btn .kbd, .card .actions .btn .kbd { font-size: 10px; margin-left: 6px; }
+.revision-bar .btn.primary .kbd { background: color-mix(in srgb, var(--on-accent) 22%, transparent); color: var(--on-accent); }
 .revision-hint { font-size: 13px; color: var(--ink-2); border-left: 2px solid var(--style); padding-left: 8px; }
 .revision-hint.rules { border-left-color: var(--rules); }
 .revision-move { font-weight: 500; color: var(--ink); }

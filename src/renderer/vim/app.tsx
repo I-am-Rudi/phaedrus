@@ -69,7 +69,9 @@ const KEYS: [string, [string, string][]][] = [
   ['Suggestions', [
     ['Tab  Shift-Tab', 'jump to the next, previous suggestion and show it in the text'],
     ['K  or Enter on an underline', 'show the suggestion under the cursor'],
-    ['while one is shown', 'Enter accept (teacher mode: check revision), 1-9 pick, x dismiss, r not for me, + add word, Tab next, Esc close'],
+    ['while one is shown', 'Enter accept (teacher mode: revise its paragraph), 1-9 pick, x dismiss, r not for me, + add word, Tab next, Esc close'],
+    ['teacher: revising a paragraph', 'Enter (normal mode) done, the changed passages go for feedback; SPC s x discard'],
+    ['feedback card', 'Enter (normal mode, cursor not on a suggestion) closes the newest one; SPC s f too'],
     [']s [s z= zg', "vim's spell keys work too"],
     ['Ctrl-w l  Ctrl-w h', 'to the suggestion panel and back; there j k move, Enter accepts'],
   ]],
@@ -236,7 +238,9 @@ export function CheatSheet() {
     ['Suggestions', [
       ['Tab S-Tab', 'next, previous, shown in place'],
       ['K', 'show the one under the cursor'],
-      ['Enter', 'accept (teacher: check revision)'],
+      ['Enter', 'accept (teacher: revise the paragraph)'],
+      ['Enter', 'revising: done · feedback: close'],
+      ['SPC s x', 'discard the revision'],
       ['1-9 x r +', 'pick, dismiss, not for me, add word'],
     ]],
     ['Modes', [

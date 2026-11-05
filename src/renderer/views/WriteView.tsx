@@ -383,15 +383,31 @@ export function WriteView() {
         return;
     }
   }
-  issueRef.current = (action, n) =>
+  issueRef.current = (action, n) => {
+    if (action === 'check' && editor && getRevision(editor.state)) return endRevision();
     act(action, action === 'next' || action === 'prev' ? null : action === 'open' ? issueUnderCursor() : currentIssue(), n);
+  };
 
   const popoverRef = useRef<string | null>(null);
   popoverRef.current = popover;
   /** Single keys while a suggestion is open in the text (vim normal mode). */
   popoverKeyRef.current = (key) => {
     const id = popoverRef.current;
-    if (!id || !checker?.entries.has(id)) return false;
+    const enter = key === 'Enter' || key === '<CR>';
+    if (!id || !checker?.entries.has(id)) {
+      // Vim normal mode without an open suggestion: Enter finishes a revision,
+      // and otherwise closes the newest feedback card (unless the cursor is on a suggestion).
+      if (enter && editor && getRevision(editor.state)) {
+        endRevision();
+        return true;
+      }
+      const top = checker?.feedback[0];
+      if (enter && top && !issueUnderCursor()) {
+        checker!.closeFeedback(top.id);
+        return true;
+      }
+      return false;
+    }
     const e = checker.entries.get(id)!;
     switch (key) {
       case '<Esc>':
@@ -511,6 +527,10 @@ export function WriteView() {
         'e!': () => void reloadFromDisk(),
         recent: () => void openRecent(),
         done: () => endRevision(),
+        feedback: () => {
+          const top = checker?.feedback[0];
+          if (top) checker!.closeFeedback(top.id);
+        },
         discard: () => endRevision(true),
         check: () => checker?.invalidate('all'),
         issue: (arg) => {
@@ -921,7 +941,9 @@ export function WriteView() {
             )}
           </div>
           <div className="cards">
-            {checker?.feedback.map((f) => <FeedbackCard key={f.id} f={f} onClose={() => checker.closeFeedback(f.id)} />)}
+            {checker?.feedback.map((f, i) => (
+              <FeedbackCard key={f.id} f={f} keyHint={settings.vim && i === 0 ? 'Enter' : undefined} onClose={() => checker.closeFeedback(f.id)} />
+            ))}
             {visible.map((e) => (
               <SuggestionCard
                 key={e.id}
@@ -1031,7 +1053,7 @@ function RejectBox({ reason, setReason, onCancel, onConfirm }: { reason: string;
   );
 }
 
-function FeedbackCard({ f, onClose }: { f: FeedbackEntry; onClose(): void }) {
+function FeedbackCard({ f, onClose, keyHint }: { f: FeedbackEntry; onClose(): void; keyHint?: string }) {
   const labels = { landed: 'Landed', partly: 'Partly there', overcorrected: 'Overcorrected', missed: 'Missed' } as const;
   return (
     <div className="card feedback">
@@ -1040,7 +1062,11 @@ function FeedbackCard({ f, onClose }: { f: FeedbackEntry; onClose(): void }) {
       <div className="quote"><del>{f.original}</del> <ins>{f.revised}</ins></div>
       <div className="msg">{f.feedback.feedback}</div>
       {f.feedback.exemplary && f.feedback.verdict === 'landed' && <div className="small muted">Kept as an example of this move in your profile.</div>}
-      <div className="actions"><button className="btn ghost small" onClick={onClose}>Done</button></div>
+      <div className="actions">
+        <button className="btn ghost small" onClick={onClose} title={keyHint ? 'Vim normal mode: Enter' : undefined}>
+          Done{keyHint && <span className="kbd">{keyHint}</span>}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1152,9 +1178,11 @@ function RevisionBar({ revision, checker, onDone, onDiscard, vim }: { revision: 
         <span className="revision-title">Revising this paragraph</span>
         <span className="small muted">{edited ? 'Changed. Feedback comes when you are done.' : 'Edit freely; nothing is checked until you are done.'}</span>
         <span className="grow" />
-        <button className="btn ghost small" onClick={onDiscard} title={vim ? ':discard' : undefined}>Discard changes</button>
-        <button className="btn primary small" onClick={onDone} title={vim ? ':done, SPC s c' : undefined}>
-          Done <span className="kbd">{MAC ? '⌘ Enter' : 'Ctrl+Enter'}</span>
+        <button className="btn ghost small" onClick={onDiscard} title={vim ? ':discard or SPC s x' : undefined}>
+          Discard changes{vim && <span className="kbd">SPC s x</span>}
+        </button>
+        <button className="btn primary small" onClick={onDone} title={vim ? 'Normal mode: Enter. Also :done, SPC s c' : undefined}>
+          Done <span className="kbd">{vim ? 'Enter' : MAC ? '⌘ Enter' : 'Ctrl+Enter'}</span>
         </button>
       </div>
       {hints.map((e) => (
