@@ -25,6 +25,11 @@ export interface VimActions {
   issue(action: IssueAction, n?: number): void;
   panel(): void;
   view(dir: 1 | -1): void;
+  leader(): void;
+  /** Keys for the open suggestion popover; returns true if it consumed the key. */
+  popoverKey(key: string): boolean;
+  /** True if the cursor is on an underlined passage. */
+  onIssue(): boolean;
 }
 
 type Op = 'd' | 'c' | 'y';
@@ -164,7 +169,7 @@ export class Vim {
       }
       return false;
     }
-    if (key === 'Tab' || key === '<S-Tab>') return false;
+    if (this.mode === 'normal' && !this.pending && this.actions.popoverKey(key)) return true;
 
     if (this.picking) {
       this.picking = false;
@@ -204,6 +209,14 @@ export class Vim {
       else this.count += key;
       return;
     }
+
+    if (!this.op && !this.count && !visual) {
+      if (key === ' ') return this.actions.leader();
+      if (key === 'Tab') return this.actions.issue('next', 1);
+      if (key === '<S-Tab>') return this.actions.issue('prev', 1);
+      if (key === 'K' || ((key === 'Enter' || key === '<CR>') && this.actions.onIssue())) return this.actions.issue('open');
+    }
+    if (key === 'Tab' || key === '<S-Tab>') return;
 
     if (['g', 'z', ']', '[', 'f', 'F', 't', 'T', 'r', '<C-w>'].includes(key) && !(visual && key === 'r')) {
       this.prefix = key;
@@ -365,7 +378,6 @@ export class Vim {
       case 'ArrowLeft':
         return { to: Math.max(lineStart(t, i), i - n) };
       case 'l':
-      case ' ':
       case 'ArrowRight':
         return { to: Math.min(op ? lineEnd(t, i) : lastCol(t, i), i + n) };
       case 'w':

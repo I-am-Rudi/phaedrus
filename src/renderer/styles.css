@@ -282,3 +282,17 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .popover { position: fixed; z-index: 15; width: 340px; }
 .popover .card { cursor: default; border-color: var(--line-strong); }
 .popover .card:hover { border-color: var(--line-strong); }
+
+.popover-keys { font-size: 11px; color: var(--ink-3); padding: 5px 2px 0; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.popover-keys .kbd { margin-left: 4px; }
+
+/* ---------- leader menu (Space) ---------- */
+.leader {
+  position: fixed; left: 64px; right: 0; bottom: 0; z-index: 25; background: var(--surface);
+  border-top: 1px solid var(--line-strong); padding: 10px 18px 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.leader-crumbs { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.leader-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 18px; }
+.leader-item { display: flex; gap: 10px; align-items: baseline; font-size: 13px; }
+.leader-item .kbd { min-width: 1.6em; text-align: center; color: var(--accent-ink); }
+.leader-group { color: var(--grammar); }

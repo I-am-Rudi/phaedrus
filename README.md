@@ -182,13 +182,25 @@ Style checks see the original paragraph and are told to leave math, commands and
 
 ## Vim keybindings
 
-Turn them on in Settings > Keys. The editor becomes modal, the rest of the app follows the same habits, and `:help` (or `?`) shows every key.
+Turn them on in Settings > Keys. The editor becomes modal, the rest of the app follows the same habits, and `?` shows every key.
 
-- **Editing:** normal, insert, visual and visual-line modes with counts; motions `h j k l w b e W B E 0 ^ $ gg G { } f t F T ; , / ? n N`; operators `d c y` with motions, doubled for lines, or with the text objects `iw aw iW aW is as ip ap`; and `x X D C s S r J ~ p P u Ctrl-r i a I A o O Ctrl-d Ctrl-u zz`. `j` and `k` move by wrapped screen lines, which suits prose. Yanks also go to the system clipboard.
-- **Suggestions:** `]s` and `[s` jump between underlines and `z=` opens the one under the cursor; then `1` to `9` picks a replacement. These follow vim's spell-checking keys, as does `zg` (add to the dictionary). Gorgias adds `za` accept, `zd` dismiss, `zr` not for me (asks for a reason) and `zc` check my revision.
-- **Panel:** `Ctrl-w l` focuses the suggestion panel and `Ctrl-w h` (or Esc) returns. In the panel, `j`/`k` move between cards, Enter or `a` accepts (in teacher mode it checks your revision), `x` dismisses, `r` rejects, `c` checks, `1` to `9` pick.
-- **Everywhere:** `gt`/`gT` cycle the views. Outside the editor, `j`/`k`/`gg`/`G` move focus between controls, Enter opens list items, `i` returns to the editor, and Esc leaves a text field.
-- **Commands:** `:w`, `:e`, `:teacher`, `:assistant`, `:write`, `:profiles`, `:extract`, `:blend`, `:settings`, `:profile NAME`, `:project NAME`, `:set doctype=thesis`, `:check` (recheck everything), `:set novim`.
+**Suggestions take one key.** `Tab` and `Shift-Tab` jump to the next or previous underline and show its suggestion in the text; `K` (or Enter on an underline) shows the one under the cursor. While a suggestion is shown, single keys act on it: Enter accepts (in teacher mode it checks your revision), `1` to `9` pick a replacement, `x` dismisses, `r` says not for me, `+` adds the word to the dictionary, `Tab` moves on, Esc closes. Any other key closes it and does what it normally does. Vim's own spell keys `]s [s z= zg` work as well.
+
+**Everything else is under Space**, in a menu that lists the next keys as you go (Backspace goes up a level):
+
+| Keys | Menu |
+|---|---|
+| `SPC s` | suggestions: next, previous, open, accept, dismiss, not for me, check revision, add word, focus panel, recheck |
+| `SPC f` | file: save, open |
+| `SPC m` | mode: toggle, assistant, teacher |
+| `SPC p` | profiles: choose general or project profile, edit, extract, blend |
+| `SPC d` | document: type, recheck |
+| `SPC g` | go to a view |
+| `SPC :` `SPC ?` | command line, key list |
+
+**Editing** has normal, insert, visual and visual-line modes with counts; motions `h j k l w b e W B E 0 ^ $ gg G { } f t F T ; , / ? n N`; operators `d c y` with motions, doubled for lines, or with the text objects `iw aw iW aW is as ip ap`; and `x X D C s S r J ~ p P u Ctrl-r i a I A o O Ctrl-d Ctrl-u zz`. `j` and `k` move by wrapped screen lines. Yanks also go to the system clipboard.
+
+**Elsewhere:** `Ctrl-w l` focuses the suggestion panel (`j`/`k` move, Enter accepts) and `Ctrl-w h` returns. `gt`/`gT` cycle the views. Outside the editor, `j`/`k`/`gg`/`G` move focus between controls, Enter opens list items, `i` returns to the editor. The `:` command line takes `:w`, `:e`, `:teacher`, `:assistant`, `:profile NAME`, `:project NAME`, `:set doctype=thesis`, `:check`, `:set novim` and the view names.
 
 In the desktop app Ctrl+W and Ctrl+R are left to the page, so they reach vim instead of closing or reloading the window; reload is on F5.
 

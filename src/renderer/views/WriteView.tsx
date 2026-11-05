@@ -53,6 +53,8 @@ export function WriteView() {
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selected;
   const issueRef = useRef<(action: IssueAction, n?: number) => void>(() => {});
+  const popoverKeyRef = useRef<(key: string) => boolean>(() => false);
+  const issueUnderCursorRef = useRef<() => string | null>(() => null);
   const vim = useMemo(
     () =>
       new Vim({
@@ -61,6 +63,9 @@ export function WriteView() {
         issue: (action, n) => issueRef.current(action, n),
         panel: () => focusPanel(),
         view: (dir) => liveApp.current.go(cycleView(liveApp.current.view, dir)),
+        leader: () => liveApp.current.setLeaderOpen(true),
+        popoverKey: (key) => popoverKeyRef.current(key),
+        onIssue: () => issueUnderCursorRef.current() !== null,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
@@ -149,15 +154,21 @@ export function WriteView() {
     document.getElementById(`card-${id}`)?.scrollIntoView({ block: 'nearest' });
   }
 
-  /** The issue under the cursor, else the selected card. */
-  function currentIssue(): string | null {
-    if (!editor || !checker) return selectedRef.current;
+  function issueUnderCursor(): string | null {
+    if (!editor || !checker) return null;
     const head = editor.state.selection.head;
     const hit = orderedRef.current.find((e) => {
       const r = checker.range(e.id);
       return r && head >= r.from && head <= r.to;
     });
-    return hit?.id ?? selectedRef.current;
+    return hit?.id ?? null;
+  }
+  issueUnderCursorRef.current = issueUnderCursor;
+
+  /** The issue under the cursor, else the selected card if it still exists. */
+  function currentIssue(): string | null {
+    const sel = selectedRef.current;
+    return issueUnderCursor() ?? (sel && checker?.entries.has(sel) ? sel : null);
   }
 
   function act(action: IssueAction, id: string | null, n?: number) {
@@ -173,9 +184,11 @@ export function WriteView() {
           : [...list].reverse().find((x) => x.r.from < head) ?? list[list.length - 1]!;
         head = target.r.from;
       }
-      return selectIssue(target.id, true);
+      selectIssue(target.id, true);
+      return setPopover(target.id);
     }
-    const target = id ?? (action === 'open' ? orderedRef.current[0]?.id ?? null : null);
+    if (action === 'open' && !id) return act('next', null, 1);
+    const target = id;
     if (!target) return app.notify('No suggestion under the cursor.');
     const e = checker.entries.get(target);
     if (!e) return;
@@ -209,7 +222,53 @@ export function WriteView() {
         return;
     }
   }
-  issueRef.current = (action, n) => act(action, action === 'next' || action === 'prev' ? null : currentIssue(), n);
+  issueRef.current = (action, n) =>
+    act(action, action === 'next' || action === 'prev' ? null : action === 'open' ? issueUnderCursor() : currentIssue(), n);
+
+  const popoverRef = useRef<string | null>(null);
+  popoverRef.current = popover;
+  /** Single keys while a suggestion is open in the text (vim normal mode). */
+  popoverKeyRef.current = (key) => {
+    const id = popoverRef.current;
+    if (!id || !checker?.entries.has(id)) return false;
+    const e = checker.entries.get(id)!;
+    switch (key) {
+      case '<Esc>':
+        setPopover(null);
+        return true;
+      case 'Enter':
+      case '<CR>':
+      case 'a':
+        act(e.kind === 'style' && settings.mode === 'teacher' ? 'check' : 'accept', id);
+        return true;
+      case 'x':
+        act('dismiss', id);
+        return true;
+      case 'r':
+        act('reject', id);
+        return true;
+      case 'c':
+        act('check', id);
+        return true;
+      case '+':
+        act('addword', id);
+        setPopover(null);
+        return true;
+      case 'Tab':
+        act('next', null, 1);
+        return true;
+      case '<S-Tab>':
+        act('prev', null, 1);
+        return true;
+      default:
+        if (/^[1-9]$/.test(key)) {
+          act('pick', id, Number(key));
+          return true;
+        }
+        setPopover(null);
+        return false;
+    }
+  };
 
   function focusPanel() {
     if (!orderedRef.current.length) return app.notify('No suggestions.');
@@ -284,6 +343,13 @@ export function WriteView() {
         w: () => void save(),
         e: () => void open(),
         check: () => checker?.invalidate('all'),
+        issue: (arg) => {
+          const action = arg.trim() as IssueAction;
+          const known: IssueAction[] = ['next', 'prev', 'open', 'accept', 'dismiss', 'reject', 'check', 'addword'];
+          if (!known.includes(action)) return app.notify(`:issue ${known.join('|')}`);
+          if (app.view !== 'write') app.go('write');
+          issueRef.current(action, 1);
+        },
         doctype: (v) => (DOC_TYPES.includes(v as (typeof DOC_TYPES)[number]) ? setDocType(v) : app.notify(`Document types: ${DOC_TYPES.join(', ')}`)),
         __editor: () => focusEditor(),
         __panel: () => focusPanel(),
@@ -414,6 +480,16 @@ export function WriteView() {
                   setPopover(null);
                 }}
               />
+              {settings.vim && (
+                <div className="popover-keys">
+                  {checker.entries.get(popover)!.kind === 'grammar'
+                    ? <><span className="kbd">1-9</span> pick <span className="kbd">x</span> ignore <span className="kbd">+</span> add word</>
+                    : settings.mode === 'teacher'
+                      ? <><span className="kbd">Enter</span> check revision <span className="kbd">x</span> skip <span className="kbd">r</span> not for me</>
+                      : <><span className="kbd">Enter</span> accept <span className="kbd">x</span> dismiss <span className="kbd">r</span> not for me</>}
+                  {' '}<span className="kbd">Tab</span> next <span className="kbd">Esc</span> close
+                </div>
+              )}
             </InlinePopover>
           )}
         </div>

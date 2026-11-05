@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useApp, type ViewId } from './state';
 import { CommandLine, HelpOverlay, useGlobalVim } from './vim/app';
+import { LeaderMenu } from './vim/leader';
 import { BlendView } from './views/BlendView';
 import { ExtractView } from './views/ExtractView';
 import { ProfilesView } from './views/ProfilesView';
@@ -45,6 +46,7 @@ export function App() {
         {view === 'settings' && <SettingsView />}
         <CommandLine />
         <HelpOverlay />
+        <LeaderMenu />
         {toast && <div className="notice" style={{ position: 'fixed', bottom: 16, right: 16, zIndex: 10 }}>{toast}</div>}
       </main>
     </div>
