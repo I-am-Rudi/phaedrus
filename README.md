@@ -244,7 +244,7 @@ Nothing is thrown away without asking. Opening another file, quitting or closing
 
 Phaedrus watches the open file. When another program changes it (vim, `git pull`, a LaTeX tool) and you have no unsaved edits, it reloads quietly, keeping the cursor and scroll position. With unsaved edits it asks whether to load the version on disk or keep yours. Saving also checks the file first, so a change it missed is not overwritten without asking.
 
-On macOS the window has no separate title bar: the window buttons sit at the top of the side rail, and the top bar (or the strip above the other views) moves the window.
+On macOS the window has no separate title bar: one bar runs across the whole window, with the window buttons at its left and the Write toolbar after them, and it moves the window. The toolbar never wraps. As the window narrows it drops the status text and the language tag, shortens Assistant and Teacher to A and T, narrows the menus, and finally hides Recent (still in the File menu and `:recent`); past that it ends in an ellipsis.
 
 A paragraph is what TeX and Markdown mean by one: the lines up to the next blank line. Single line breaks inside it (one sentence per line, or a hard wrap at 80 columns) are source formatting, so every check reads the paragraph as one piece of text and a sentence that runs over several lines is still one sentence. The line breaks stay where they are in the editor and in the saved file.
 

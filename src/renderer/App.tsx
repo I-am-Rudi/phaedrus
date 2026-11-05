@@ -22,7 +22,7 @@ const ICONS: Record<ViewId, ReactNode> = {
 const LABELS: Record<ViewId, string> = { write: 'Write', profiles: 'Profiles', rules: 'Rules', extract: 'Extract', blend: 'Blend', settings: 'Settings' };
 
 export function App() {
-  const { view, go, mock, toast, settings } = useApp();
+  const { view, go, mock, toast, settings, setTitlebar } = useApp();
   useGlobalVim();
   useEffect(() => applyTheme(settings.theme ?? 'system'), [settings.theme]);
   const button = (id: ViewId) => (
@@ -33,6 +33,11 @@ export function App() {
   );
   return (
     <div className="app">
+      {/* One bar across the window: room for the macOS window buttons, then the view's toolbar. */}
+      <header className="titlebar">
+        <div className="titlebar-lights" aria-hidden />
+        <div className="titlebar-slot" ref={setTitlebar} />
+      </header>
       <nav className="rail">
         <div className="mark">P</div>
         {(['write', 'profiles', 'rules', 'extract', 'blend'] as ViewId[]).map(button)}
@@ -40,8 +45,6 @@ export function App() {
         {button('settings')}
       </nav>
       <main className="view">
-        {/* Drag area for the window on macOS (hidden title bar); the Write view's top bar is its own. */}
-        {view !== 'write' && <div className="drag-strip" />}
         {mock && <div className="mock-banner">Browser preview: profiles live in memory and a rule-based stand-in replaces the language model.</div>}
         {/* The write view stays mounted so the document and its checks survive navigation. */}
         <div className="view" style={{ display: view === 'write' ? 'flex' : 'none', flex: 1, minHeight: 0 }}>

@@ -1,6 +1,7 @@
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import type { OpenedDocument } from '@shared/api';
 import { DOC_TYPES, parseDocumentFull, serializeDocument, type DocBlock } from '@shared/document';
 import { baseLabel, baseLanguage, harperDialectFor, languageLabel, languageMatches } from '@shared/language';
@@ -9,6 +10,7 @@ import type { Category, Mode, TasteProfile } from '@shared/types';
 import { Checker, type Entry, type FeedbackEntry, type StyleEntry } from '../editor/checker';
 import { BlockSeparators, blocks, IssuesExtension, LatexHeadings } from '../editor/issues';
 import { PlainTextPaste } from '../editor/paste';
+import { useFit } from '../fit';
 import { cycleView } from '../vim/app';
 import { Vim, type IssueAction } from '../vim/editorVim';
 import { SAMPLE_DOCUMENT } from '../sample';
@@ -54,6 +56,8 @@ export function WriteView() {
   const { backend, settings, general, project, mock } = app;
   const [doc, setDoc] = useState<{ path: string | null; name: string }>({ path: null, name: 'untitled.md' });
   const [dirty, setDirty] = useState(false);
+  const [topbarEl, setTopbarEl] = useState<HTMLDivElement | null>(null);
+  useFit(topbarEl, 5);
   const docNameRef = useRef(doc.name);
   docNameRef.current = doc.name;
   const [docType, setDocType] = useState('paper');
@@ -643,16 +647,20 @@ export function WriteView() {
   const lastSecs = checker?.lastStyleMs ? (checker.lastStyleMs / 1000).toFixed(1) : null;
   const err = checker && (checker.grammarPhase === 'error' || checker.stylePhase === 'error' || !!checker.message);
   const projects = app.summaries.filter((s) => s.kind === 'project');
+  const statusTitle = err ? checker?.message : styleLeft ? `Checking style: ${styleDone} of ${sp.total}` : busy ? 'Checking spelling' : 'Up to date';
   const generals = app.summaries.filter((s) => s.kind === 'general' && languageMatches(s.language, app.language));
 
   return (
     <>
-      <div className="topbar">
+      {app.view === 'write' &&
+        app.titlebar &&
+        createPortal(
+      <div className="topbar" ref={setTopbarEl}>
         <span className={`docname${dirty ? ' dirty' : ''}`} title={doc.path ?? ''}>{doc.name}</span>
         <button className="btn ghost small" onClick={() => void open()} title="Open (Ctrl/Cmd+O)">Open</button>
-        <button className="btn ghost small" onClick={() => void openRecent()} title="Open a recent file">Recent</button>
+        <button className="btn ghost small recent-btn" onClick={() => void openRecent()} title="Open a recent file">Recent</button>
         <button className="btn ghost small" onClick={() => void save()} title="Save (Ctrl/Cmd+S); Save As: Ctrl/Cmd+Shift+S">Save</button>
-        <span className="muted">|</span>
+        <span className="muted sep">|</span>
         <select value={docType} onChange={(e) => setDocType(e.target.value)} title="Document type, used for move scopes">
           {DOC_TYPES.map((t) => <option key={t}>{t}</option>)}
         </select>
@@ -674,23 +682,31 @@ export function WriteView() {
         </select>
         {app.alwaysProfiles.length > 0 && (
           <span className="tag on" title={`Always on: ${app.alwaysProfiles.map((p) => p.name).join(', ')}`}>
-            +{app.alwaysProfiles.length} always on
+            +{app.alwaysProfiles.length}<span className="long"> always on</span>
           </span>
         )}
         <RulesPicker />
-        <span className="tag" title={project?.language ? `Language of the project profile ${project.name}` : 'Default language from Settings'}>{languageLabel(language)}</span>
+        <span className="tag lang" title={project?.language ? `Language of the project profile ${project.name}` : 'Default language from Settings'}>{languageLabel(language)}</span>
         <div className="seg" role="tablist">
-          <button className={settings.mode === 'assistant' ? 'on' : ''} onClick={() => setMode('assistant')}>Assistant</button>
-          <button className={settings.mode === 'teacher' ? 'on' : ''} onClick={() => setMode('teacher')}>Teacher</button>
+          <button className={settings.mode === 'assistant' ? 'on' : ''} onClick={() => setMode('assistant')} title="Assistant mode: suggestions with rewrites">
+            <span className="long">Assistant</span>
+            <span className="short">A</span>
+          </button>
+          <button className={settings.mode === 'teacher' ? 'on' : ''} onClick={() => setMode('teacher')} title="Teacher mode: hints and feedback on your revision">
+            <span className="long">Teacher</span>
+            <span className="short">T</span>
+          </button>
         </div>
         <span className="status">
           {settings.vim && (
             <span className={`vim-mode vim-mode-${vimMode}`}>
-              {vimMode === 'visual-line' ? 'V-LINE' : vimMode!.toUpperCase()}
+              <span className="long">{vimMode === 'visual-line' ? 'V-LINE' : vimMode!.toUpperCase()}</span>
+              <span className="short">{vimMode === 'visual-line' ? 'VL' : vimMode!.slice(0, 1).toUpperCase()}</span>
               {vimPending && <span className="kbd">{vimPending}</span>}
             </span>
           )}
-          <span className={`dot ${err ? 'err' : busy ? 'busy' : 'ok'}`} />
+          <span className={`dot ${err ? 'err' : busy ? 'busy' : 'ok'}`} title={statusTitle} />
+          <span className="status-text">
           {err ? (
             <span className="error" title={checker?.message}>{checker?.message.slice(0, 80)}</span>
           ) : styleLeft ? (
@@ -700,8 +716,11 @@ export function WriteView() {
           ) : (
             <span title={lastSecs ? `Last style request took ${lastSecs} s` : undefined}>Up to date</span>
           )}
+          </span>
         </span>
-      </div>
+      </div>,
+          app.titlebar,
+        )}
       <div className="write">
         <div className="page-scroll" onScroll={() => popover && setPopoverTick((t) => t + 1)}>
           <div className={`page ${settings.mode}`}>

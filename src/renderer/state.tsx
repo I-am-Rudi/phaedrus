@@ -94,6 +94,9 @@ interface AppState {
   /** Updated synchronously, so keys typed right after Space reach the menu. */
   leaderRef: { current: boolean };
   viewArg: string | undefined;
+  /** The window-wide title bar; the active view can render its toolbar into it. */
+  titlebar: HTMLElement | null;
+  setTitlebar(el: HTMLElement | null): void;
   toast: string | null;
   notify(msg: string): void;
 }
@@ -114,6 +117,7 @@ export function AppProvider({ backend, events, mock, initial, children }: { back
   const [view, setView] = useState<ViewId>('write');
   const [viewArg, setViewArg] = useState<string | undefined>();
   const [toast, setToast] = useState<string | null>(null);
+  const [titlebar, setTitlebar] = useState<HTMLElement | null>(null);
   const [prompt, setPrompt] = useState<AppState['prompt']>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [leaderOpen, setLeaderOpenState] = useState(false);
@@ -375,11 +379,11 @@ export function AppProvider({ backend, events, mock, initial, children }: { back
       backend, events, ask, dialog, registerGuard, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged,
       language, activeGeneralId, setActiveGeneral, generalMismatch: mismatch,
       ruleSummaries, ruleSets, alwaysProfiles, setAlwaysOn, isAlwaysOn, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged,
-      view, viewArg, go, toast, notify,
+      view, viewArg, go, toast, notify, titlebar, setTitlebar,
       prompt, openPrompt: (prefix, onSubmit, onClose) => setPrompt({ prefix, onSubmit, onClose }), closePrompt: () => setPrompt(null),
       registerCommands, runCommand, helpOpen, setHelpOpen, leaderOpen, setLeaderOpen, leaderRef, cheatOpen, setCheatOpen,
     }),
-    [backend, events, ask, dialog, registerGuard, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, ruleSummaries, ruleSets, alwaysProfiles, setAlwaysOn, isAlwaysOn, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen, leaderOpen, cheatOpen],
+    [backend, events, ask, dialog, registerGuard, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, ruleSummaries, ruleSets, alwaysProfiles, setAlwaysOn, isAlwaysOn, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged, view, viewArg, go, toast, notify, titlebar, prompt, registerCommands, runCommand, helpOpen, leaderOpen, cheatOpen],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -36,7 +36,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+html, body, #root { height: 100%; margin: 0; overflow: hidden; }
 body {
   background: var(--bg);
   color: var(--ink);
@@ -48,13 +48,15 @@ h1, h2, h3 { font-weight: 400; margin: 0; }
 input, select, textarea, button { font: inherit; color: inherit; }
 
 /* ---------- shell ---------- */
-.app { display: grid; grid-template-columns: 64px 1fr; height: 100%; }
+.app { display: grid; grid-template-columns: 64px 1fr; grid-template-rows: auto 1fr; height: 100%; }
+.app > .rail, .app > main { min-height: 0; }
+.rail { overflow-y: auto; overflow-x: hidden; }
 .rail {
   border-right: 1px solid var(--line);
   display: flex; flex-direction: column; align-items: stretch; padding: 12px 0; gap: 2px;
   background: var(--surface);
 }
-.rail .mark { font: 600 15px var(--serif); text-align: center; margin-bottom: 14px; color: var(--ink); }
+.rail .mark { font: 600 22px var(--serif); text-align: center; margin: 10px 0 18px; color: var(--ink); }
 .rail button {
   background: none; border: 0; border-left: 2px solid transparent; padding: 10px 0 8px; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; color: var(--ink-3);
@@ -109,9 +111,10 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 
 /* ---------- write view ---------- */
 .topbar {
-  display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--line);
-  background: var(--surface); flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px; height: 100%; width: 100%; position: relative;
+  flex-wrap: nowrap; white-space: nowrap;
 }
+.topbar > * { flex: none; }
 .topbar .docname { font-weight: 400; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .dirty::after { content: ' *'; color: var(--accent); }
 .topbar .status { font-size: 12px; color: var(--ink-3); margin-left: auto; display: flex; gap: 6px; align-items: center; }
@@ -338,24 +341,6 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .ask-item.on { background: var(--sunk); }
 .ask-hint { font-size: 11px; margin-top: 6px; }
 
-/* ---------- macOS: title bar inside the app ----------
-   The window buttons (traffic lights) sit at the top of the side rail; the
-   rail top, the Write view's top bar and a strip above the other views drag
-   the window. Controls inside them opt out of dragging. */
-.drag-strip { display: none; }
-.titlebar-inset .app { grid-template-columns: 76px 1fr; }
-.titlebar-inset .rail { padding-top: 46px; -webkit-app-region: drag; }
-.titlebar-inset .rail button { -webkit-app-region: no-drag; }
-.titlebar-inset .topbar { -webkit-app-region: drag; min-height: 50px; }
-.titlebar-inset .topbar > *, .titlebar-inset .topbar button, .titlebar-inset .topbar select, .titlebar-inset .topbar input { -webkit-app-region: no-drag; }
-.titlebar-inset .topbar > .status { -webkit-app-region: drag; }
-.titlebar-inset .topbar > .status button { -webkit-app-region: no-drag; }
-.titlebar-inset .drag-strip { display: block; height: 22px; flex: none; -webkit-app-region: drag; }
-.titlebar-inset.is-fullscreen .rail { padding-top: 12px; }
-.titlebar-inset.is-fullscreen .drag-strip { display: none; }
-/* Overlays and dialogs must stay clickable over drag areas. */
-.titlebar-inset .overlay, .titlebar-inset .popover, .titlebar-inset .notice { -webkit-app-region: no-drag; }
-
 /* ---------- always-on switch ---------- */
 .switch { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 3px; padding: 5px 10px; cursor: pointer; color: var(--ink-2); }
 .switch .knob { width: 24px; height: 13px; border-radius: 7px; background: var(--line-strong); position: relative; flex: none; }
@@ -364,3 +349,51 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .switch.on .knob { background: var(--accent); }
 .switch.on .knob::after { left: 13px; }
 .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- title bar ----------
+   One bar across the window. On macOS the window has no system title bar: the
+   window buttons sit at its left (14 px from the edge, the same 14 px free to
+   their right), and the bar drags the window. Controls opt out of dragging. */
+:root { --lights: 16px; }
+.titlebar-inset { --lights: 88px; }
+.titlebar-inset.is-fullscreen { --lights: 16px; }
+.titlebar {
+  grid-column: 1 / -1; height: 46px; display: flex; align-items: center; padding-right: 16px;
+  background: var(--surface); border-bottom: 1px solid var(--line); position: relative; z-index: 12;
+  -webkit-app-region: drag; user-select: none;
+}
+.titlebar-lights { width: var(--lights); flex: none; align-self: stretch; }
+.titlebar-slot { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; }
+.titlebar-slot:empty { display: none; }
+.titlebar button, .titlebar select, .titlebar input, .titlebar summary, .titlebar .docname, .titlebar .tag, .titlebar .rules-menu, .titlebar label { -webkit-app-region: no-drag; }
+.overlay, .popover, .notice, .rules-menu { -webkit-app-region: no-drag; }
+
+/* Toolbar compaction: no wrapping, step down instead (see fit.ts). */
+.topbar .short { display: none; }
+.topbar .status { flex: none; }
+.topbar select { max-width: 200px; text-overflow: ellipsis; }
+.topbar[data-compact='1'] .status-text, .topbar[data-compact='1'] .lang,
+.topbar[data-compact='2'] .status-text, .topbar[data-compact='2'] .lang,
+.topbar[data-compact='3'] .status-text, .topbar[data-compact='3'] .lang,
+.topbar[data-compact='4'] .status-text, .topbar[data-compact='4'] .lang,
+.topbar[data-compact='5'] .status-text, .topbar[data-compact='5'] .lang { display: none; }
+.topbar:is([data-compact='2'], [data-compact='3'], [data-compact='4'], [data-compact='5']) .long { display: none; }
+.topbar:is([data-compact='2'], [data-compact='3'], [data-compact='4'], [data-compact='5']) .short { display: inline; }
+.topbar:is([data-compact='2'], [data-compact='3'], [data-compact='4'], [data-compact='5']) .sep { display: none; }
+.topbar:is([data-compact='2'], [data-compact='3'], [data-compact='4'], [data-compact='5']) .seg button { padding: 5px 9px; }
+.topbar:is([data-compact='3'], [data-compact='4'], [data-compact='5']) { gap: 6px; }
+.topbar:is([data-compact='3'], [data-compact='4'], [data-compact='5']) select { max-width: 130px; }
+.topbar:is([data-compact='3'], [data-compact='4'], [data-compact='5']) .docname { max-width: 150px; }
+.topbar:is([data-compact='4'], [data-compact='5']) select { max-width: 92px; padding-left: 5px; }
+.topbar:is([data-compact='4'], [data-compact='5']) .docname { max-width: 100px; }
+.topbar:is([data-compact='4'], [data-compact='5']) .btn.small { padding: 2px 4px; }
+/* Last step: Recent goes (it stays in the File menu, :recent, SPC f r), and only
+   the file name and the menus shrink; buttons keep their full label. */
+.topbar[data-compact='5'] .recent-btn { display: none; }
+.topbar[data-compact='5'] > .docname, .topbar[data-compact='5'] > select { flex: 0 1 auto; min-width: 48px; }
+/* Too narrow even then: cut off at the right edge with an ellipsis. */
+.topbar.clipped { clip-path: inset(0 0 -100vh 0); }
+.topbar.clipped::after {
+  content: '…'; position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center;
+  padding: 0 4px 0 14px; color: var(--ink-2); background: linear-gradient(to right, transparent, var(--surface) 10px);
+}
