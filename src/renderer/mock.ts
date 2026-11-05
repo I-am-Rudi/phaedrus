@@ -3,7 +3,8 @@
 // UI be developed and demoed without Electron or an LLM.
 
 import type { Backend, ProfileSummary, Snapshot } from '@shared/api';
-import { checkStyle, editFeedback, extractProfile, findBlendConflicts, type LLM } from '@shared/coach';
+import { checkStyle, editFeedback, extractProfile, extractRules, findBlendConflicts, type LLM } from '@shared/coach';
+import { applyRuleEvent, newRule, newRuleSet, parseRuleSet, serializeRuleSet, type RuleSet } from '@shared/rules';
 import { harperDialectFor } from '@shared/language';
 import { hasLatex, mapBack, maskLatex } from '@shared/latex';
 import { computeMetrics, splitSentences, words } from '@shared/metrics';
@@ -71,6 +72,17 @@ function sampleProfiles(): TasteProfile[] {
   return [general, thesis];
 }
 
+function sampleRules(): RuleSet {
+  const set = newRuleSet('Thesis rules');
+  set.language = 'en-GB';
+  set.description = 'House rules for the thesis.';
+  set.rules = [
+    newRule({ title: 'No contractions', description: 'Write "do not", "it is", "cannot" in full.', good: ['It is finite.'], bad: ["It's finite."] }),
+    newRule({ title: 'Define acronyms at first use', description: 'Spell out an acronym the first time it appears, with the acronym in parentheses.', good: ['quantum field theory (QFT)'] }, ['no-contractions']),
+  ];
+  return set;
+}
+
 /** Rule-based stand-in for an LLM, answering in the same JSON the real prompts ask for. */
 const fakeLLM: LLM = {
   async complete(req) {
@@ -88,6 +100,20 @@ const fakeLLM: LLM = {
           explanation: 'Dropping the announcement lets the paragraph start with its actual claim.',
           hint_specific: 'What is the claim hiding behind this announcement? Could the sentence start there?',
           hint_general: 'No throat clearing: look at how this sentence begins.',
+        });
+      }
+      const contraction = /\b(?:it's|don't|can't|isn't|won't|doesn't|we're|they're|that's)\b/i.exec(paragraph);
+      const ruleId = /- rule: (\S+) \| No contractions/.exec(req.prompt)?.[1];
+      if (contraction && ruleId) {
+        const full: Record<string, string> = { "it's": 'it is', "don't": 'do not', "can't": 'cannot', "isn't": 'is not', "won't": 'will not', "doesn't": 'does not', "we're": 'we are', "they're": 'they are', "that's": 'that is' };
+        suggestions.push({
+          rule_id: ruleId,
+          quote: contraction[0],
+          issue: 'The rule asks for no contractions.',
+          rewrite: ((w) => (/^[A-Z]/.test(contraction[0]) ? w[0]!.toUpperCase() + w.slice(1) : w))(full[contraction[0].toLowerCase()] ?? contraction[0]),
+          explanation: 'Write the words out in full.',
+          hint_specific: 'Which two words is this short for?',
+          hint_general: 'No contractions: look at this word.',
         });
       }
       const first = splitSentences(paragraph)[0] ?? '';
@@ -115,6 +141,12 @@ const fakeLLM: LLM = {
       );
     }
     if (req.prompt.includes('"conflicts"')) return JSON.stringify({ conflicts: [] });
+    if (req.prompt.includes('Extract the writing rules')) {
+      const lines = [...req.prompt.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.{8,140})$/gm)].map((m) => m[1]!).filter((l) => !l.startsWith('"'));
+      return JSON.stringify({
+        rules: lines.slice(0, 8).map((l) => ({ title: l.split(/[.:;]/)[0]!.slice(0, 60), description: l, do: [], dont: [], applies_to: '', source: 'pasted document' })),
+      });
+    }
     if (req.prompt.includes('<source')) {
       return JSON.stringify({
         description: 'Mock extraction: the stand-in model only looks at sentence length.',
@@ -160,6 +192,7 @@ async function harperRaw(text: string): Promise<GrammarIssue[]> {
 
 export function createMockBackend(): Backend {
   const profiles = new Map<string, string>();
+  const ruleSets = new Map<string, RuleSet>([[sampleRules().id, sampleRules()]]);
   const history = new Map<string, { snap: Snapshot; text: string }[]>();
   for (const p of sampleProfiles()) profiles.set(p.id, serializeProfile(p));
   let settings: Settings = {
@@ -173,9 +206,12 @@ export function createMockBackend(): Backend {
     activeGeneralProfile: null,
     generalByLanguage: { en: 'plain-physics' },
     activeProjectProfile: 'thesis',
+    rulesByProject: { thesis: ['thesis-rules'] },
     mode: 'assistant',
     dictionary: [],
+    theme: 'system',
     vim: false,
+    vimEscape: { sequence: '', timeoutMs: 300, ctrlC: true },
     styleDebounceMs: 1200,
     grammarDebounceMs: 500,
   };
@@ -249,7 +285,34 @@ export function createMockBackend(): Backend {
       },
       reveal: async () => {},
     },
+    rules: {
+      list: async () => [...ruleSets.values()].map((s) => ({ id: s.id, name: s.name, language: s.language, rules: s.rules.length, updated: s.updated })),
+      get: async (id) => structuredClone(ruleSets.get(id)!),
+      save: async (s) => {
+        const saved = { ...structuredClone(s), updated: new Date().toISOString() };
+        ruleSets.set(s.id, saved);
+        return saved;
+      },
+      remove: async (id) => void ruleSets.delete(id),
+      applyEvent: async (id, ev) => {
+        const next = applyRuleEvent(ruleSets.get(id)!, ev);
+        ruleSets.set(id, next);
+        return next;
+      },
+      exportTo: async (id) => {
+        download(`${id}.md`, serializeRuleSet(ruleSets.get(id)!), 'text/markdown');
+        return `${id}.md`;
+      },
+      importFrom: async () => {
+        const [f] = await pickFiles('.md', false);
+        if (!f) return null;
+        const s = parseRuleSet(await f.text(), f.name.replace(/\.md$/, ''));
+        ruleSets.set(s.id, s);
+        return s;
+      },
+    },
     coach: {
+      extractRules: (docs, takenIds) => extractRules(fakeLLM, docs, { takenIds }),
       extract: (sources, name, kind, language) => extractProfile(fakeLLM, sources, { name, kind, language, takenIds: [...profiles.keys()] }),
       diff: async (a, b) => diffProfiles(a, b),
       checkStyle: (req) => checkStyle(fakeLLM, req),

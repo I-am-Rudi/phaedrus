@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LANGUAGES } from '@shared/language';
+import { THEME_OPTIONS, THEMES } from '../themes';
 import type { ProviderId, Settings } from '@shared/types';
 import { errorText, useApp } from '../state';
 
@@ -42,6 +43,34 @@ export function SettingsView() {
           <h1 className="grow">Settings</h1>
           <button className="btn" disabled={!dirty} onClick={() => setS(settings)}>Revert</button>
           <button className="btn primary" disabled={!dirty} onClick={() => void app.updateSettings(s)}>Save</button>
+        </div>
+
+        <div className="section">
+          <h2>Appearance</h2>
+          <div className="themes">
+            {THEME_OPTIONS.map(([id, label]) => {
+              const t = id === 'system' ? null : THEMES[id]!;
+              return (
+                <button
+                  key={id}
+                  className={`theme-swatch${s.theme === id ? ' on' : ''}`}
+                  onClick={() => {
+                    setS({ ...s, theme: id });
+                    void app.updateSettings({ theme: id });
+                  }}
+                  style={t ? { background: t.colors.surface, color: t.colors.ink, borderColor: s.theme === id ? t.colors.accent : t.colors.lineStrong } : undefined}
+                  title={label}
+                >
+                  <span className="theme-name">{label}</span>
+                  {t && (
+                    <span className="theme-dots">
+                      {[t.colors.spelling, t.colors.grammar, t.colors.style, t.colors.rules, t.colors.accent].map((c, i) => <i key={i} style={{ background: c }} />)}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="section">
@@ -143,6 +172,27 @@ export function SettingsView() {
             Modal editing, <span className="kbd">]s</span> <span className="kbd">z=</span> for suggestions, <span className="kbd">gt</span> between views,
             {' '}<span className="kbd">j</span>/<span className="kbd">k</span> between controls, and a <span className="kbd">:</span> command line. <span className="kbd">:help</span> or <span className="kbd">?</span> lists every key.
           </div>
+          {s.vim && (
+            <>
+              <div className="grid3">
+                <label className="field">
+                  Leave insert mode by typing (like <span className="kbd">inoremap jk &lt;Esc&gt;</span>)
+                  <input type="text" value={s.vimEscape.sequence} placeholder="e.g. jk or jj (empty: off)" maxLength={4} onChange={(e) => setS({ ...s, vimEscape: { ...s.vimEscape, sequence: e.target.value.replace(/\s/g, '') } })} />
+                </label>
+                <label className="field">
+                  Within (ms)
+                  <input type="number" min={100} max={2000} step={50} value={s.vimEscape.timeoutMs} onChange={(e) => setS({ ...s, vimEscape: { ...s.vimEscape, timeoutMs: Number(e.target.value) || 300 } })} />
+                </label>
+                <label className="inline" style={{ alignSelf: 'flex-end', paddingBottom: 6 }}>
+                  <input type="checkbox" checked={s.vimEscape.ctrlC} onChange={(e) => setS({ ...s, vimEscape: { ...s.vimEscape, ctrlC: e.target.checked } })} />
+                  <span className="kbd">Ctrl-c</span> acts as Escape
+                </label>
+              </div>
+              <div className="small muted">
+                <span className="kbd">Esc</span> and <span className="kbd">Ctrl-[</span> always work. Caps Lock mapped to Escape at the system level (Karabiner, Keyboard settings) arrives as a real Escape and works too.
+              </div>
+            </>
+          )}
         </div>
 
         <div className="section">

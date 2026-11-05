@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp, type ViewId } from '../state';
 
-const VIEW_ORDER: ViewId[] = ['write', 'profiles', 'extract', 'blend', 'settings'];
+const VIEW_ORDER: ViewId[] = ['write', 'profiles', 'rules', 'extract', 'blend', 'settings'];
 
 export function cycleView(current: ViewId, dir: 1 | -1): ViewId {
   const i = VIEW_ORDER.indexOf(current);
@@ -50,7 +50,7 @@ export function CommandLine() {
           if (e.key === 'Enter') {
             e.preventDefault();
             finish(true);
-          } else if (e.key === 'Escape' || (e.key === 'Backspace' && !value)) {
+          } else if (e.key === 'Escape' || (e.ctrlKey && (e.key === 'c' || e.key === '[')) || (e.key === 'Backspace' && !value)) {
             e.preventDefault();
             finish(false);
           } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -66,10 +66,20 @@ export function CommandLine() {
 }
 
 const KEYS: [string, [string, string][]][] = [
+  ['Suggestions', [
+    ['Tab  Shift-Tab', 'jump to the next, previous suggestion and show it in the text'],
+    ['K  or Enter on an underline', 'show the suggestion under the cursor'],
+    ['while one is shown', 'Enter accept (teacher mode: check revision), 1-9 pick, x dismiss, r not for me, + add word, Tab next, Esc close'],
+    [']s [s z= zg', "vim's spell keys work too"],
+    ['Ctrl-w l  Ctrl-w h', 'to the suggestion panel and back; there j k move, Enter accepts'],
+  ]],
+  ['Space menu', [
+    ['Space', 'opens a menu of everything else: s suggestions, f file, m mode, p profiles, d document, g go to view; Backspace goes up'],
+    ['Space h', 'toggle a small cheat sheet of the most-used keys'],
+  ]],
   ['Modes', [
     ['i a I A o O', 'insert before, after, at line start, at line end, on a new line below, above'],
-    ['v V', 'visual, visual line'],
-    ['Esc', 'back to normal mode'],
+    ['v V  Esc', 'visual, visual line, back to normal'],
   ]],
   ['Moving', [
     ['h j k l', 'left, down, up, right (j and k follow wrapped lines)'],
@@ -86,23 +96,11 @@ const KEYS: [string, [string, string][]][] = [
     ['x X D C s S r J ~', 'the usual single-key edits'],
     ['p P u Ctrl-r', 'paste after, before, undo, redo'],
   ]],
-  ['Suggestions', [
-    [']s [s', 'next, previous underline'],
-    ['z=  then 1-9', 'open the suggestion under the cursor, pick a replacement'],
-    ['za zd zr', 'accept, dismiss, not for me'],
-    ['zc', 'check my revision (teacher mode)'],
-    ['zg', 'add the word to the dictionary'],
-    ['Ctrl-w l  Ctrl-w h', 'to the suggestion panel and back; in the panel j k move, Enter or a accepts, x dismisses, r rejects, c checks, 1-9 pick'],
-  ]],
   ['Everywhere', [
     ['gt gT', 'next, previous view'],
     ['j k gg G Enter', 'move between and activate controls outside the editor; i returns to the editor'],
-    [':w :e', 'save, open'],
-    [':teacher :assistant', 'switch mode'],
-    [':write :profiles :extract :blend :settings', 'open a view'],
-    [':profile NAME  :project NAME', 'choose profiles'],
-    [':set doctype=paper  :set novim', 'document type, turn vim keys off'],
-    [':help ?', 'this list'],
+    [':', 'command line: :w :e :teacher :assistant :profile NAME :project NAME :set doctype=paper :set novim'],
+    ['?', 'this list'],
   ]],
 ];
 
@@ -168,11 +166,11 @@ export function useGlobalVim() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const { app, focusEditor, focusPanel } = live.current;
-      if (!app.settings.vim || app.prompt || app.helpOpen || e.defaultPrevented) return;
+      if (!app.settings.vim || app.prompt || app.helpOpen || app.leaderRef.current || e.defaultPrevented) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest('.ProseMirror')) return;
       if (isField(target)) {
-        if (e.key === 'Escape') target!.blur();
+        if (e.key === 'Escape' || (e.ctrlKey && e.key === '[')) target!.blur();
         return;
       }
       if (e.metaKey || e.altKey) return;
@@ -201,6 +199,7 @@ export function useGlobalVim() {
         return handled();
       }
       if (key === ':') return handled(), app.openPrompt(':', (line) => app.runCommand(line));
+      if (key === ' ') return handled(), app.setLeaderOpen(true);
       if (key === '?') return handled(), app.setHelpOpen(true);
       if (inScope) return;
 
@@ -226,4 +225,57 @@ export function useGlobalVim() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+}
+
+/** Small, non-modal reference of the most-used keys; SPC h toggles it. */
+export function CheatSheet() {
+  const { cheatOpen, setCheatOpen, settings } = useApp();
+  if (!cheatOpen || !settings.vim) return null;
+  const esc = ['Esc', 'Ctrl-[', ...(settings.vimEscape.ctrlC ? ['Ctrl-c'] : []), ...(settings.vimEscape.sequence ? [settings.vimEscape.sequence] : [])].join(' ');
+  const rows: [string, [string, string][]][] = [
+    ['Suggestions', [
+      ['Tab S-Tab', 'next, previous, shown in place'],
+      ['K', 'show the one under the cursor'],
+      ['Enter', 'accept (teacher: check revision)'],
+      ['1-9 x r +', 'pick, dismiss, not for me, add word'],
+    ]],
+    ['Modes', [
+      ['i a A o', 'insert here, after, at end, new line'],
+      [esc, 'back to normal'],
+      ['v V', 'visual, visual line'],
+    ]],
+    ['Move', [
+      ['w b e', 'word forward, back, end'],
+      ['0 $  gg G', 'line start, end, top, bottom'],
+      ['f t  /  { }', 'to char, search, paragraph'],
+    ]],
+    ['Edit', [
+      ['dw ciw dd', 'delete word, change word, delete line'],
+      ['yy p u Ctrl-r', 'yank line, paste, undo, redo'],
+    ]],
+    ['More', [
+      ['Space', 'menu of everything else'],
+      [':w  gt', 'save, next view'],
+    ]],
+  ];
+  return (
+    <div className="cheat" role="complementary" aria-label="Vim cheat sheet">
+      <div className="row">
+        <b className="grow">Vim keys</b>
+        <span className="small muted">SPC h hides</span>
+        <button className="btn ghost small" onClick={() => setCheatOpen(false)} aria-label="Close cheat sheet">×</button>
+      </div>
+      {rows.map(([group, items]) => (
+        <div key={group} className="cheat-group">
+          <div className="cheat-title">{group}</div>
+          {items.map(([k, d]) => (
+            <div className="cheat-row" key={k}>
+              <span className="cheat-keys">{k}</span>
+              <span>{d}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
 }

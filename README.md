@@ -8,7 +8,7 @@ Spelling and grammar come from an open-source engine (LanguageTool or Harper). S
 
 ## Modes
 
-Both modes underline issues in the text in three colours: red for spelling, blue for grammar, green for style. Spelling and grammar behave the same in both.
+Both modes underline issues in the text in three colours: red for spelling, blue for grammar, green for style. Click an underline (or press `z=` with vim keys) to get the suggestion right there, with the same actions as the side panel, which lists every suggestion. Spelling and grammar behave the same in both modes.
 
 - **Assistant** shows each style suggestion in full: what drifts from the move, a rewrite of the quoted passage, and why. *Accept* applies the rewrite, *Dismiss* hides it, *Not for me* hides it and records your reason as a note on the move.
 - **Teacher** shows only a hint (a question that points at the problem) with no rewrite. Revise the passage yourself. When you leave the paragraph, or press *Check my revision*, the model judges the edit as *landed*, *partly*, *overcorrected* or *missed* and says why.
@@ -26,6 +26,20 @@ Every profile update is saved, and the previous version goes to `.history/<profi
 | Landed revision the model rates as exemplary | your sentence is kept as an example of the move (at most 5 of your own) |
 
 Locked moves never change automatically. That covers re-extraction too.
+
+## Rules
+
+Rules are a second, separate category next to the taste profile: explicit requirements such as "define acronyms at first use", "no contractions" or "SI units with a thin space". A taste profile describes how authors you admire write; a rule set says what your text must do. Violations get their own dashed underline and their own "Rules" chip, and appear in the same popover and panel as style suggestions, with a rewrite in assistant mode and a hint in teacher mode.
+
+- **Writing rules:** the Rules view lists rule sets (grouped by language). Each rule has a statement, Do and Don't examples, a scope (document types, sections), notes and a lock.
+- **Extracting rules:** paste or add documents that state rules, such as a journal's author instructions, a style guide or a supervisor's comments. The model extracts only rules those documents state, each checkable on a paragraph, and you pick which to add; duplicates of existing rules are skipped.
+- **Active per project:** several rule sets can be on at once, and the choice is remembered per project profile (Rules picker in the toolbar, `:rule NAME`, or `SPC r t`).
+- **Checking:** rules go into the same model request as style, so they add no extra call. "Not for me" on a rule adds your reason as a note the model sees next time; rules never fade or lose weight.
+- **Files:** `<profiles folder>/rules/<id>.md`, Markdown with one `## Rule` section each (settings block, rule text, `### Do`, `### Don't`, `### Notes`), with snapshots in `rules/.history/`.
+
+## Appearance
+
+Settings > Appearance offers System (follows the OS light or dark setting), Light, Dark, Gruvbox light soft, Gruvbox light, Gruvbox dark soft, Gruvbox dark, Solarized light and dark, Nord, and Catppuccin Latte and Mocha. Each theme uses its own palette for the underlines, for example Gruvbox's red, blue, green and purple for spelling, grammar, style and rules.
 
 ## Taste profiles
 
@@ -182,13 +196,29 @@ Style checks see the original paragraph and are told to leave math, commands and
 
 ## Vim keybindings
 
-Turn them on in Settings > Keys. The editor becomes modal, the rest of the app follows the same habits, and `:help` (or `?`) shows every key.
+Turn them on in Settings > Keys. The editor becomes modal, the rest of the app follows the same habits, and `?` shows every key.
 
-- **Editing:** normal, insert, visual and visual-line modes with counts; motions `h j k l w b e W B E 0 ^ $ gg G { } f t F T ; , / ? n N`; operators `d c y` with motions, doubled for lines, or with the text objects `iw aw iW aW is as ip ap`; and `x X D C s S r J ~ p P u Ctrl-r i a I A o O Ctrl-d Ctrl-u zz`. `j` and `k` move by wrapped screen lines, which suits prose. Yanks also go to the system clipboard.
-- **Suggestions:** `]s` and `[s` jump between underlines and `z=` opens the one under the cursor; then `1` to `9` picks a replacement. These follow vim's spell-checking keys, as does `zg` (add to the dictionary). Gorgias adds `za` accept, `zd` dismiss, `zr` not for me (asks for a reason) and `zc` check my revision.
-- **Panel:** `Ctrl-w l` focuses the suggestion panel and `Ctrl-w h` (or Esc) returns. In the panel, `j`/`k` move between cards, Enter or `a` accepts (in teacher mode it checks your revision), `x` dismisses, `r` rejects, `c` checks, `1` to `9` pick.
-- **Everywhere:** `gt`/`gT` cycle the views. Outside the editor, `j`/`k`/`gg`/`G` move focus between controls, Enter opens list items, `i` returns to the editor, and Esc leaves a text field.
-- **Commands:** `:w`, `:e`, `:teacher`, `:assistant`, `:write`, `:profiles`, `:extract`, `:blend`, `:settings`, `:profile NAME`, `:project NAME`, `:set doctype=thesis`, `:check` (recheck everything), `:set novim`.
+**Suggestions take one key.** `Tab` and `Shift-Tab` jump to the next or previous underline and show its suggestion in the text; `K` (or Enter on an underline) shows the one under the cursor. While a suggestion is shown, single keys act on it: Enter accepts (in teacher mode it checks your revision), `1` to `9` pick a replacement, `x` dismisses, `r` says not for me, `+` adds the word to the dictionary, `Tab` moves on, Esc closes. Any other key closes it and does what it normally does. Vim's own spell keys `]s [s z= zg` work as well.
+
+**Everything else is under Space**, in a menu that lists the next keys as you go (Backspace goes up a level):
+
+| Keys | Menu |
+|---|---|
+| `SPC s` | suggestions: next, previous, open, accept, dismiss, not for me, check revision, add word, focus panel, recheck |
+| `SPC f` | file: save, open |
+| `SPC m` | mode: toggle, assistant, teacher |
+| `SPC p` | profiles: choose general or project profile, edit, extract, blend |
+| `SPC r` | rules: toggle a rule set for this project, edit rule sets |
+| `SPC d` | document: type, recheck |
+| `SPC g` | go to a view |
+| `SPC h` | a small cheat sheet of the most-used keys, kept open while you write |
+| `SPC :` `SPC ?` | command line, full key list |
+
+**Editing** has normal, insert, visual and visual-line modes with counts; motions `h j k l w b e W B E 0 ^ $ gg G { } f t F T ; , / ? n N`; operators `d c y` with motions, doubled for lines, or with the text objects `iw aw iW aW is as ip ap`; and `x X D C s S r J ~ p P u Ctrl-r i a I A o O Ctrl-d Ctrl-u zz`. `j` and `k` move by wrapped screen lines. Yanks also go to the system clipboard.
+
+**Escape, remapped:** Esc and `Ctrl-[` always work, `Ctrl-c` too unless you turn it off, and Settings > Keys takes an insert-mode sequence such as `jk` or `jj` with a timeout, like `inoremap jk <Esc>` and `timeoutlen` in a vimrc. Caps Lock mapped to Escape in the OS arrives as a real Escape.
+
+**Elsewhere:** `Ctrl-w l` focuses the suggestion panel (`j`/`k` move, Enter accepts) and `Ctrl-w h` returns. `gt`/`gT` cycle the views. Outside the editor, `j`/`k`/`gg`/`G` move focus between controls, Enter opens list items, `i` returns to the editor. The `:` command line takes `:w`, `:e`, `:teacher`, `:assistant`, `:profile NAME`, `:project NAME`, `:set doctype=thesis`, `:check`, `:set novim` and the view names.
 
 In the desktop app Ctrl+W and Ctrl+R are left to the page, so they reach vim instead of closing or reloading the window; reload is on F5.
 

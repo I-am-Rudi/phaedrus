@@ -4,6 +4,7 @@
 import type { DiffEntry } from './profile/diff';
 import type { ExcerptPolicy } from './profile/exchange';
 import type { ProfileEvent } from './profile/feedback';
+import type { RuleEvent, RuleSet, WritingRule } from './rules';
 import type { EditFeedbackRequest, StyleCheckRequest } from './coach';
 import type {
   BlendConflict,
@@ -22,6 +23,14 @@ export interface ProfileSummary {
   kind: TasteProfile['kind'];
   language?: string;
   moves: number;
+  updated: string;
+}
+
+export interface RuleSetSummary {
+  id: string;
+  name: string;
+  language?: string;
+  rules: number;
   updated: string;
 }
 
@@ -58,7 +67,17 @@ export interface Backend {
     importFrom(): Promise<TasteProfile | null>;
     reveal(): Promise<void>;
   };
+  rules: {
+    list(): Promise<RuleSetSummary[]>;
+    get(id: string): Promise<RuleSet>;
+    save(set: RuleSet, reason: string): Promise<RuleSet>;
+    remove(id: string): Promise<void>;
+    applyEvent(setId: string, event: RuleEvent): Promise<RuleSet>;
+    exportTo(id: string): Promise<string | null>;
+    importFrom(): Promise<RuleSet | null>;
+  };
   coach: {
+    extractRules(docs: SourceDoc[], takenIds: string[]): Promise<WritingRule[]>;
     extract(sources: SourceDoc[], name: string, kind: TasteProfile['kind'], language?: string): Promise<TasteProfile>;
     diff(current: TasteProfile, incoming: TasteProfile): Promise<DiffEntry[]>;
     checkStyle(req: StyleCheckRequest): Promise<StyleSuggestion[]>;

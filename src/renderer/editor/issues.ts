@@ -36,7 +36,7 @@ export type IssueMeta =
 
 export const issuesKey = new PluginKey<PluginState>('issues');
 
-const isGrammar = (c: Category) => c !== 'style';
+const isGrammar = (c: Category) => c === 'spelling' || c === 'grammar';
 
 function build(doc: PMNode, items: IssueRange[], selected: string | null): DecorationSet {
   const decos = items

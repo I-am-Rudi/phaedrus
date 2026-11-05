@@ -29,7 +29,7 @@ function toContent(text: string) {
   };
 }
 
-const CATEGORY_LABEL: Record<Category, string> = { spelling: 'Spelling', grammar: 'Grammar', style: 'Style' };
+const CATEGORY_LABEL: Record<Category, string> = { spelling: 'Spelling', grammar: 'Grammar', style: 'Style', rules: 'Rules' };
 
 export function WriteView() {
   const app = useApp();
@@ -37,8 +37,11 @@ export function WriteView() {
   const [doc, setDoc] = useState<{ path: string | null; name: string }>({ path: null, name: 'untitled.md' });
   const [dirty, setDirty] = useState(false);
   const [docType, setDocType] = useState('paper');
-  const [filters, setFilters] = useState<Record<Category, boolean>>({ spelling: true, grammar: true, style: true });
+  const [filters, setFilters] = useState<Record<Category, boolean>>({ spelling: true, grammar: true, style: true, rules: true });
   const [selected, setSelected] = useState<string | null>(null);
+  /** Suggestion shown in place, under its underline. */
+  const [popover, setPopover] = useState<string | null>(null);
+  const [popoverTick, setPopoverTick] = useState(0);
 
   // Live values for the checker without re-creating it.
   const live = useRef({ settings, general, project, docType, language: app.language, profileChanged: app.profileChanged });
@@ -50,6 +53,8 @@ export function WriteView() {
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selected;
   const issueRef = useRef<(action: IssueAction, n?: number) => void>(() => {});
+  const popoverKeyRef = useRef<(key: string) => boolean>(() => false);
+  const issueUnderCursorRef = useRef<() => string | null>(() => null);
   const vim = useMemo(
     () =>
       new Vim({
@@ -58,6 +63,9 @@ export function WriteView() {
         issue: (action, n) => issueRef.current(action, n),
         panel: () => focusPanel(),
         view: (dir) => liveApp.current.go(cycleView(liveApp.current.view, dir)),
+        leader: () => liveApp.current.setLeaderOpen(true),
+        popoverKey: (key) => popoverKeyRef.current(key),
+        onIssue: () => issueUnderCursorRef.current() !== null,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
@@ -75,6 +83,7 @@ export function WriteView() {
       vim.extension(),
       IssuesExtension((id) => {
         setSelected(id);
+        setPopover(id);
         checkerRef.current?.select(id);
         if (id) document.getElementById(`card-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }),
@@ -87,6 +96,7 @@ export function WriteView() {
     if (editor) vim.attach(editor);
     vim.setEnabled(settings.vim);
   }, [editor, vim, settings.vim]);
+  useEffect(() => vim.setEscape(settings.vimEscape ?? { sequence: '', timeoutMs: 300, ctrlC: true }), [vim, settings.vimEscape]);
   const vimState = useSyncExternalStore(
     (fn) => vim.subscribe(fn),
     () => `${vim.mode}|${vim.pending}`,
@@ -99,6 +109,10 @@ export function WriteView() {
       backend,
       settings: () => live.current.settings,
       profiles: () => ({ general: live.current.general, project: live.current.project }),
+      ruleSets: () => liveApp.current.ruleSets,
+      onRuleEvent: (setId, ev) => {
+        void liveApp.current.backend.rules.applyEvent(setId, ev).then((s) => liveApp.current.ruleSetChanged(s));
+      },
       docType: () => live.current.docType,
       language: () => live.current.language,
       onProfile: (p) => live.current.profileChanged(p),
@@ -117,7 +131,8 @@ export function WriteView() {
 
   // Context changes that invalidate style results.
   const profileKey = `${general?.id}:${general?.moves.map((m) => m.id + m.description + m.enabled + m.scope.docTypes + m.scope.sections).join()}|${project?.id}:${project?.moves.map((m) => m.id + m.description + m.enabled).join()}`;
-  useEffect(() => checker?.invalidate('style'), [checker, profileKey, docType]);
+  const rulesKey = app.ruleSets.map((s) => s.id + s.rules.map((r) => r.id + r.description + r.enabled + r.notes.length + r.scope.sections).join()).join('|');
+  useEffect(() => checker?.invalidate('style'), [checker, profileKey, rulesKey, docType]);
   const language = app.language;
   useEffect(() => checker?.invalidate('grammar'), [checker, settings.grammar.engine, language, settings.grammar.harperDialect, settings.dictionary.length]);
   useEffect(() => checker?.setMode(settings.mode), [checker, settings.mode]);
@@ -132,7 +147,7 @@ export function WriteView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checker, version, settings.mode]);
 
-  const counts = { spelling: 0, grammar: 0, style: 0 } as Record<Category, number>;
+  const counts = { spelling: 0, grammar: 0, style: 0, rules: 0 } as Record<Category, number>;
   for (const e of ordered) counts[e.category]++;
   const visible = ordered.filter((e) => filters[e.category]);
   orderedRef.current = visible;
@@ -145,15 +160,21 @@ export function WriteView() {
     document.getElementById(`card-${id}`)?.scrollIntoView({ block: 'nearest' });
   }
 
-  /** The issue under the cursor, else the selected card. */
-  function currentIssue(): string | null {
-    if (!editor || !checker) return selectedRef.current;
+  function issueUnderCursor(): string | null {
+    if (!editor || !checker) return null;
     const head = editor.state.selection.head;
     const hit = orderedRef.current.find((e) => {
       const r = checker.range(e.id);
       return r && head >= r.from && head <= r.to;
     });
-    return hit?.id ?? selectedRef.current;
+    return hit?.id ?? null;
+  }
+  issueUnderCursorRef.current = issueUnderCursor;
+
+  /** The issue under the cursor, else the selected card if it still exists. */
+  function currentIssue(): string | null {
+    const sel = selectedRef.current;
+    return issueUnderCursor() ?? (sel && checker?.entries.has(sel) ? sel : null);
   }
 
   function act(action: IssueAction, id: string | null, n?: number) {
@@ -169,15 +190,18 @@ export function WriteView() {
           : [...list].reverse().find((x) => x.r.from < head) ?? list[list.length - 1]!;
         head = target.r.from;
       }
-      return selectIssue(target.id, true);
+      selectIssue(target.id, true);
+      return setPopover(target.id);
     }
-    const target = id ?? (action === 'open' ? orderedRef.current[0]?.id ?? null : null);
+    if (action === 'open' && !id) return act('next', null, 1);
+    const target = id;
     if (!target) return app.notify('No suggestion under the cursor.');
     const e = checker.entries.get(target);
     if (!e) return;
     switch (action) {
       case 'open':
-        return selectIssue(target, false);
+        selectIssue(target, false);
+        return setPopover(target);
       case 'pick':
         if (e.kind === 'grammar') {
           const r = e.issue.replacements[(n ?? 1) - 1];
@@ -204,7 +228,55 @@ export function WriteView() {
         return;
     }
   }
-  issueRef.current = (action, n) => act(action, action === 'next' || action === 'prev' ? null : currentIssue(), n);
+  issueRef.current = (action, n) =>
+    act(action, action === 'next' || action === 'prev' ? null : action === 'open' ? issueUnderCursor() : currentIssue(), n);
+
+  const popoverRef = useRef<string | null>(null);
+  popoverRef.current = popover;
+  /** Single keys while a suggestion is open in the text (vim normal mode). */
+  popoverKeyRef.current = (key) => {
+    const id = popoverRef.current;
+    if (!id || !checker?.entries.has(id)) return false;
+    const e = checker.entries.get(id)!;
+    switch (key) {
+      case '<Esc>':
+      case '<C-[>':
+      case '<C-c>':
+        setPopover(null);
+        return true;
+      case 'Enter':
+      case '<CR>':
+      case 'a':
+        act(e.kind === 'style' && settings.mode === 'teacher' ? 'check' : 'accept', id);
+        return true;
+      case 'x':
+        act('dismiss', id);
+        return true;
+      case 'r':
+        act('reject', id);
+        return true;
+      case 'c':
+        act('check', id);
+        return true;
+      case '+':
+        act('addword', id);
+        setPopover(null);
+        return true;
+      case 'Tab':
+        act('next', null, 1);
+        return true;
+      case '<S-Tab>':
+        act('prev', null, 1);
+        return true;
+      default:
+        if (/^[1-9]$/.test(key)) {
+          act('pick', id, Number(key));
+          return true;
+        }
+        setPopover(null);
+        return false;
+    }
+  };
 
   function focusPanel() {
     if (!orderedRef.current.length) return app.notify('No suggestions.');
@@ -279,11 +351,23 @@ export function WriteView() {
         w: () => void save(),
         e: () => void open(),
         check: () => checker?.invalidate('all'),
+        issue: (arg) => {
+          const action = arg.trim() as IssueAction;
+          const known: IssueAction[] = ['next', 'prev', 'open', 'accept', 'dismiss', 'reject', 'check', 'addword'];
+          if (!known.includes(action)) return app.notify(`:issue ${known.join('|')}`);
+          if (app.view !== 'write') app.go('write');
+          issueRef.current(action, 1);
+        },
         doctype: (v) => (DOC_TYPES.includes(v as (typeof DOC_TYPES)[number]) ? setDocType(v) : app.notify(`Document types: ${DOC_TYPES.join(', ')}`)),
         __editor: () => focusEditor(),
         __panel: () => focusPanel(),
       }),
   );
+
+  // Close the popover once its suggestion is gone (applied, dismissed, edited away).
+  useEffect(() => {
+    if (popover && checker && !checker.entries.has(popover)) setPopover(null);
+  }, [popover, checker, version]);
 
   async function open() {
     try {
@@ -362,6 +446,7 @@ export function WriteView() {
           <option value="">No project profile</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        <RulesPicker />
         <span className="tag" title={project?.language ? `Language of the project profile ${project.name}` : 'Default language from Settings'}>{languageLabel(language)}</span>
         <div className="seg" role="tablist">
           <button className={settings.mode === 'assistant' ? 'on' : ''} onClick={() => setMode('assistant')}>Assistant</button>
@@ -379,10 +464,43 @@ export function WriteView() {
         </span>
       </div>
       <div className="write">
-        <div className="page-scroll">
+        <div className="page-scroll" onScroll={() => popover && setPopoverTick((t) => t + 1)}>
           <div className={`page ${settings.mode}`}>
             <EditorContent editor={editor} />
           </div>
+          {popover && checker && editor && checker.entries.has(popover) && (
+            <InlinePopover
+              key={popover}
+              entry={checker.entries.get(popover)!}
+              anchor={checker.range(popover)}
+              editorView={editor.view}
+              tick={popoverTick + Number(version.length)}
+              onClose={() => setPopover(null)}
+            >
+              <SuggestionCard
+                e={checker.entries.get(popover)!}
+                mode={settings.mode}
+                selected={false}
+                inline
+                checker={checker}
+                onSelect={() => {}}
+                onAddWord={(w) => {
+                  void app.updateSettings({ dictionary: [...settings.dictionary, w] });
+                  setPopover(null);
+                }}
+              />
+              {settings.vim && (
+                <div className="popover-keys">
+                  {checker.entries.get(popover)!.kind === 'grammar'
+                    ? <><span className="kbd">1-9</span> pick <span className="kbd">x</span> ignore <span className="kbd">+</span> add word</>
+                    : settings.mode === 'teacher'
+                      ? <><span className="kbd">Enter</span> check revision <span className="kbd">x</span> skip <span className="kbd">r</span> not for me</>
+                      : <><span className="kbd">Enter</span> accept <span className="kbd">x</span> dismiss <span className="kbd">r</span> not for me</>}
+                  {' '}<span className="kbd">Tab</span> next <span className="kbd">Esc</span> close
+                </div>
+              )}
+            </InlinePopover>
+          )}
         </div>
         <aside className="side" ref={asideRef} tabIndex={-1} data-vim-scope onKeyDown={onPanelKey}>
           <div className="side-head">
@@ -408,7 +526,7 @@ export function WriteView() {
                 {app.generalMismatch.name} is a {languageLabel(app.generalMismatch.language ?? '')} profile and is not used for {languageLabel(app.language)} text.
               </div>
             )}
-            {!general && !project && (
+            {!general && !project && !app.ruleSets.length && (
               <div className="small muted">
                 No taste profile selected, so only spelling and grammar are checked.{' '}
                 <a href="#" onClick={(e) => (e.preventDefault(), app.go('extract'))}>Extract one</a>
@@ -439,9 +557,10 @@ export function WriteView() {
   );
 }
 
-function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord }: {
-  e: Entry; mode: Mode; selected: boolean; checker: Checker; onSelect(): void; onAddWord(w: string): void;
+function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord, inline = false }: {
+  e: Entry; mode: Mode; selected: boolean; checker: Checker; onSelect(): void; onAddWord(w: string): void; inline?: boolean;
 }) {
+  const domId = inline ? undefined : `card-${e.id}`;
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const stop = (fn: () => void) => (ev: React.MouseEvent) => {
@@ -452,7 +571,7 @@ function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord }: {
   if (e.kind === 'grammar') {
     const i = e.issue;
     return (
-      <div id={`card-${e.id}`} className={`card ${e.category}${selected ? ' selected' : ''}`} onClick={onSelect}>
+      <div id={domId} className={`card ${e.category}${selected ? ' selected' : ''}`} onClick={onSelect}>
         <div className="kind">{CATEGORY_LABEL[e.category]}</div>
         <div className="quote">{i.text}</div>
         <div className="msg">{i.message}</div>
@@ -471,8 +590,8 @@ function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord }: {
   const s = e.s;
   const hint = hintFor(e.move.hintLevel, s.hints, e.move.title);
   return (
-    <div id={`card-${e.id}`} className={`card style${selected ? ' selected' : ''}`} onClick={onSelect}>
-      <div className="kind">Style <span>·</span> <span style={{ textTransform: 'none', letterSpacing: 0 }}>{e.move.title}</span></div>
+    <div id={domId} className={`card ${e.category}${selected ? ' selected' : ''}`} onClick={onSelect}>
+      <div className="kind">{e.category === 'rules' ? 'Rule' : 'Style'} <span>·</span> <span style={{ textTransform: 'none', letterSpacing: 0 }}>{e.move.title}</span></div>
       {mode === 'assistant' ? (
         <>
           <div className="msg">{s.issue}</div>
@@ -536,3 +655,89 @@ function FeedbackCard({ f, onClose }: { f: FeedbackEntry; onClose(): void }) {
 }
 
 export type { StyleEntry };
+
+/** A suggestion card floating under its underline in the text. */
+function InlinePopover({ entry, anchor, editorView, tick, onClose, children }: {
+  entry: Entry;
+  anchor: { from: number; to: number } | undefined;
+  editorView: import('@tiptap/pm/view').EditorView;
+  tick: number;
+  onClose(): void;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!anchor) return;
+    try {
+      const start = editorView.coordsAtPos(anchor.from);
+      const end = editorView.coordsAtPos(anchor.to, -1);
+      const width = 340;
+      const height = ref.current?.offsetHeight ?? 160;
+      const below = end.bottom + 6;
+      const top = below + height > window.innerHeight - 8 ? Math.max(8, start.top - height - 6) : below;
+      const left = Math.max(72, Math.min(start.left, window.innerWidth - width - 12));
+      setPos({ top, left });
+    } catch {
+      setPos(null);
+    }
+  }, [anchor?.from, anchor?.to, editorView, tick]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (ref.current?.contains(t) || t.closest('.issue')) return;
+      onClose();
+    };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('mousedown', onDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('mousedown', onDown, true);
+    };
+  }, [onClose]);
+
+  if (!anchor) return null;
+  return (
+    <div
+      ref={ref}
+      className={`popover ${entry.category}`}
+      style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
+      role="dialog"
+      aria-label="Suggestion"
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Choose which rule sets apply to the current project. */
+function RulesPicker() {
+  const app = useApp();
+  const options = app.ruleSummaries.filter((r) => languageMatches(r.language, app.language));
+  const active = new Set(app.activeRuleIds);
+  const n = options.filter((o) => active.has(o.id)).length;
+  return (
+    <details className="rules-picker">
+      <summary className="btn ghost small" title="Rule sets checked for this project">Rules{n ? ` (${n})` : ''}</summary>
+      <div className="rules-menu">
+        {options.map((o) => (
+          <label key={o.id} className="inline">
+            <input
+              type="checkbox"
+              checked={active.has(o.id)}
+              onChange={(e) => void app.setActiveRules(e.target.checked ? [...app.activeRuleIds, o.id] : app.activeRuleIds.filter((x) => x !== o.id))}
+            />
+            {o.name} <span className="small muted">{o.rules}</span>
+          </label>
+        ))}
+        {!options.length && <span className="small muted">No rule sets in {languageLabel(app.language)} yet.</span>}
+        <a href="#" className="small" onClick={(e) => (e.preventDefault(), app.go('rules'))}>Edit rule sets</a>
+      </div>
+    </details>
+  );
+}

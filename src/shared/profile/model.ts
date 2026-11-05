@@ -113,6 +113,6 @@ export function ownerOf(moveId: string, general: TasteProfile | null, project: T
   return null;
 }
 
-export function touch(profile: TasteProfile): TasteProfile {
-  return { ...profile, updated: new Date().toISOString() };
+export function touch<T extends { updated: string }>(item: T): T {
+  return { ...item, updated: new Date().toISOString() };
 }

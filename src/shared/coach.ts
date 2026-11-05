@@ -6,6 +6,7 @@ import { extractJson, num, str } from './json';
 import { hasLatex, maskLatex, proseOf, rewriteKeepsLatex } from './latex';
 import { computeMetrics, metricDrift } from './metrics';
 import { newMove, newProfile } from './profile/model';
+import { newRule, type WritingRule } from './rules';
 import { findQuote } from './spans';
 import type {
   BlendConflict,
@@ -148,6 +149,8 @@ export interface StyleCheckRequest {
   before?: string;
   after?: string;
   moves: StyleMove[];
+  /** Active writing rules; `key` identifies the rule across rule sets. */
+  rules?: (WritingRule & { key: string })[];
   docType: string;
   section: string;
   metrics?: StyleMetrics;
@@ -166,6 +169,18 @@ function formatMove(m: StyleMove): string {
     .join('\n');
 }
 
+function formatRule(r: WritingRule & { key: string }): string {
+  return [
+    `- rule: ${r.key} | ${r.title}`,
+    r.description && `    ${oneLine(r.description)}`,
+    ...r.good.slice(0, 2).map((g) => `    do: "${oneLine(g)}"`),
+    ...r.bad.slice(0, 2).map((b) => `    don't: "${oneLine(b)}"`),
+    ...r.notes.map((n) => `    user note: ${oneLine(n)}`),
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export function styleCheckPrompt(req: StyleCheckRequest): string {
   const drift = metricDrift(req.paragraph, req.metrics);
   const driftText = drift.length
@@ -174,9 +189,7 @@ export function styleCheckPrompt(req: StyleCheckRequest): string {
   return `Document type: ${req.docType || 'unspecified'}
 Section: ${req.section || 'unspecified'}
 
-Style moves (higher weight = the user cares more; respect user notes):
-${req.moves.map(formatMove).join('\n')}
-${driftText}
+${req.moves.length ? `Style moves (higher weight = the user cares more; respect user notes):\n${req.moves.map(formatMove).join('\n')}\n` : ''}${req.rules?.length ? `\nWriting rules (requirements: flag every clear violation, regardless of style; respect user notes):\n${req.rules.map(formatRule).join('\n')}\n` : ''}${driftText}
 ${req.before ? `Previous paragraph (context only, do not flag):\n<context>${req.before}</context>\n\n` : ''}Paragraph to check:
 <paragraph>${req.paragraph}</paragraph>
 ${req.after ? `\nNext paragraph (context only, do not flag):\n<context>${req.after}</context>\n` : ''}
@@ -184,9 +197,10 @@ Return JSON:
 {
   "suggestions": [
     {
-      "move_id": "id of the move this is about",
+      "move_id": "id of the style move this is about (omit for a rule violation)",
+      "rule_id": "id of the writing rule that is violated (omit for a style suggestion)",
       "quote": "exact, contiguous text copied from the paragraph that the suggestion is about, as short as possible (a phrase or one sentence)",
-      "issue": "one sentence: what drifts from the move here",
+      "issue": "one sentence: what drifts from the move, or which rule is broken and how",
       "rewrite": "replacement for exactly the quoted text, applying the move",
       "explanation": "one or two sentences on why the rewrite is closer to the move",
       "hint_specific": "a question or nudge that points at what to change here without giving the answer",
@@ -194,25 +208,27 @@ Return JSON:
     }
   ]
 }
-At most ${req.limit ?? 3} suggestions, most important first. "quote" must match the paragraph character for character.`;
+At most ${req.limit ?? 3} style suggestions plus any rule violations, most important first. "quote" must match the paragraph character for character.`;
 }
 
 export async function checkStyle(llm: LLM, req: StyleCheckRequest): Promise<StyleSuggestion[]> {
   // Skip paragraphs that are mostly equations or markup.
-  if (!req.moves.length || proseOf(req.paragraph).replace(/\bX\b/g, '').trim().length < 20) return [];
+  if ((!req.moves.length && !req.rules?.length) || proseOf(req.paragraph).replace(/\bX\b/g, '').trim().length < 20) return [];
   const reply = await llm.complete({ system: CHECK_SYSTEM, prompt: styleCheckPrompt(req), tier: 'fast', maxTokens: 1500 });
   return parseSuggestions(reply, req);
 }
 
-export function parseSuggestions(reply: string, req: Pick<StyleCheckRequest, 'paragraph' | 'moves' | 'limit'>): StyleSuggestion[] {
+export function parseSuggestions(reply: string, req: Pick<StyleCheckRequest, 'paragraph' | 'moves' | 'rules' | 'limit'>): StyleSuggestion[] {
   const data = extractJson<any>(reply);
   const raw: any[] = Array.isArray(data) ? data : Array.isArray(data?.suggestions) ? data.suggestions : [];
   const known = new Set(req.moves.map((m) => m.id));
+  const knownRules = new Set((req.rules ?? []).map((r) => r.key));
   const out: StyleSuggestion[] = [];
   for (const s of raw) {
-    const moveId = str(s?.move_id ?? s?.moveId);
+    const ruleKey = str(s?.rule_id ?? s?.ruleId);
+    const moveId = knownRules.has(ruleKey) ? '' : str(s?.move_id ?? s?.moveId);
     const quote = str(s?.quote);
-    if (!known.has(moveId) || !quote.trim()) continue;
+    if ((!known.has(moveId) && !knownRules.has(ruleKey)) || !quote.trim()) continue;
     const range = findQuote(req.paragraph, quote);
     if (!range) continue; // the model misquoted; drop rather than guess
     const rewrite = str(s.rewrite);
@@ -221,6 +237,7 @@ export function parseSuggestions(reply: string, req: Pick<StyleCheckRequest, 'pa
     if (!rewriteKeepsLatex(quoted, rewrite)) continue;
     out.push({
       moveId,
+      ...(moveId ? {} : { ruleKey }),
       quote: req.paragraph.slice(range.from, range.to),
       issue: str(s.issue),
       rewrite,
@@ -228,7 +245,65 @@ export function parseSuggestions(reply: string, req: Pick<StyleCheckRequest, 'pa
       hints: { specific: str(s.hint_specific ?? s.hintSpecific), general: str(s.hint_general ?? s.hintGeneral) },
     });
   }
-  return out.slice(0, req.limit ?? 3);
+  return out.slice(0, (req.limit ?? 3) + (req.rules?.length ? 2 : 0));
+}
+
+// --------------------------------------------------------- rule extraction
+
+const RULES_SYSTEM = `You extract writing rules from documents that state them: style guides, journal author instructions, a supervisor's comments, house rules.
+You only extract rules the document actually states or clearly instructs. You never invent rules or describe the document's own style.
+Each rule must be checkable on a single paragraph of someone else's writing.
+You answer with JSON only.`;
+
+export async function extractRules(llm: LLM, docs: SourceDoc[], opts: { takenIds?: string[] } = {}): Promise<WritingRule[]> {
+  if (!docs.length) throw new Error('Add at least one document.');
+  const blocks = sampleSources(docs)
+    .map((d, i) => `<document index="${i + 1}" title="${esc(d.name)}">\n${d.text}\n</document>`)
+    .join('\n\n');
+  const prompt = `Extract the writing rules these documents state.
+
+${blocks}
+
+Return JSON:
+{
+  "rules": [
+    {
+      "title": "short imperative name, 2-8 words (e.g. Define acronyms at first use)",
+      "description": "the rule, precisely enough to check a paragraph against it",
+      "do": ["short example that follows the rule, quoted from the document if it gives one"],
+      "dont": ["short example that breaks it"],
+      "applies_to": "section names it is limited to, comma separated, or empty",
+      "source": "title of the document it comes from"
+    }
+  ]
+}
+Skip rules about layout, file formats, submission logistics or figures that cannot be checked in running text. Merge rules that say the same thing.`;
+  const reply = await llm.complete({ system: RULES_SYSTEM, prompt, tier: 'strong', maxTokens: 6000 });
+  const data = extractJson<any>(reply);
+  const raw: any[] = Array.isArray(data?.rules) ? data.rules : [];
+  const taken = [...(opts.takenIds ?? [])];
+  const out: WritingRule[] = [];
+  for (const r of raw) {
+    const title = str(r?.title).trim();
+    if (!title) continue;
+    const listOf = (v: unknown) => (Array.isArray(v) ? v.map((x) => str(x).trim()).filter(Boolean) : []);
+    const rule = newRule(
+      {
+        title,
+        description: str(r.description),
+        good: listOf(r.do),
+        bad: listOf(r.dont ?? r["don't"]),
+        origin: 'extracted',
+        source: str(r.source) || undefined,
+        scope: { docTypes: [], sections: str(r.applies_to).split(',').map((x) => x.trim()).filter(Boolean) },
+      },
+      taken,
+    );
+    taken.push(rule.id);
+    out.push(rule);
+  }
+  if (!out.length) throw new Error('No checkable writing rules found in these documents.');
+  return out;
 }
 
 // ------------------------------------------------------- teacher-mode feedback

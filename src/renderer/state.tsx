@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Backend, ProfileSummary } from '@shared/api';
+import type { Backend, ProfileSummary, RuleSetSummary } from '@shared/api';
 import { baseLanguage, languageMatches } from '@shared/language';
+import type { RuleSet } from '@shared/rules';
 import type { Settings, TasteProfile } from '@shared/types';
 
-export type ViewId = 'write' | 'profiles' | 'extract' | 'blend' | 'settings';
+export type ViewId = 'write' | 'profiles' | 'rules' | 'extract' | 'blend' | 'settings';
 
 interface AppState {
   backend: Backend;
@@ -21,6 +22,13 @@ interface AppState {
   setActiveGeneral(id: string | null, language?: string): Promise<void>;
   /** A chosen general profile in another language than the document, if any. */
   generalMismatch: TasteProfile | null;
+  ruleSummaries: RuleSetSummary[];
+  /** Rule sets active for the current project and language. */
+  ruleSets: RuleSet[];
+  activeRuleIds: string[];
+  setActiveRules(ids: string[]): Promise<void>;
+  refreshRules(): Promise<void>;
+  ruleSetChanged(s: RuleSet): void;
   refreshProfiles(): Promise<void>;
   /** Replace a loaded profile after it was saved elsewhere (accept/reject, editor). */
   profileChanged(p: TasteProfile): void;
@@ -35,6 +43,12 @@ interface AppState {
   runCommand(line: string): void;
   helpOpen: boolean;
   setHelpOpen(open: boolean): void;
+  leaderOpen: boolean;
+  setLeaderOpen(open: boolean): void;
+  cheatOpen: boolean;
+  setCheatOpen(open: boolean): void;
+  /** Updated synchronously, so keys typed right after Space reach the menu. */
+  leaderRef: { current: boolean };
   viewArg: string | undefined;
   toast: string | null;
   notify(msg: string): void;
@@ -58,6 +72,13 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
   const [toast, setToast] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<AppState['prompt']>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [leaderOpen, setLeaderOpenState] = useState(false);
+  const leaderRef = useRef(false);
+  const [cheatOpen, setCheatOpen] = useState(false);
+  const setLeaderOpen = useCallback((open: boolean) => {
+    leaderRef.current = open;
+    setLeaderOpenState(open);
+  }, []);
   const commandsRef = useRef(new Map<string, (arg: string) => void>());
 
   const load = useCallback(
@@ -66,6 +87,8 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
   );
 
   const [mismatch, setMismatch] = useState<TasteProfile | null>(null);
+  const [ruleSummaries, setRuleSummaries] = useState<RuleSetSummary[]>([]);
+  const [ruleSets, setRuleSets] = useState<RuleSet[]>([]);
   const language = project?.language || settings.grammar.language;
   const base = baseLanguage(language);
   const activeGeneralId = (base && settings.generalByLanguage[base]) || settings.activeGeneralProfile;
@@ -97,6 +120,36 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
     async (patch: Partial<Settings>) => setSettings(await backend.settings.set(patch)),
     [backend],
   );
+
+  const projectKey = settings.activeProjectProfile ?? '';
+  const activeRuleIds = useMemo(() => settings.rulesByProject?.[projectKey] ?? [], [settings.rulesByProject, projectKey]);
+
+  const refreshRules = useCallback(async () => {
+    setRuleSummaries(await backend.rules.list());
+  }, [backend]);
+  useEffect(() => {
+    void refreshRules();
+  }, [refreshRules]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ids = activeRuleIds.filter((id) => ruleSummaries.some((r) => r.id === id && languageMatches(r.language, language)));
+    void Promise.all(ids.map((id) => backend.rules.get(id).catch(() => null))).then((sets) => {
+      if (!cancelled) setRuleSets(sets.filter((s): s is RuleSet => !!s));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [backend, activeRuleIds, ruleSummaries, language]);
+
+  const setActiveRules = useCallback(
+    (ids: string[]) => updateSettings({ rulesByProject: { ...settings.rulesByProject, [projectKey]: ids } }),
+    [settings.rulesByProject, projectKey, updateSettings],
+  );
+  const ruleSetChanged = useCallback((s: RuleSet) => {
+    setRuleSets((list) => list.map((x) => (x.id === s.id ? s : x)));
+    setRuleSummaries((list) => list.map((x) => (x.id === s.id ? { ...x, name: s.name, language: s.language, rules: s.rules.length, updated: s.updated } : x)));
+  }, []);
 
   const setActiveGeneral = useCallback(
     async (id: string | null, lang?: string) => {
@@ -139,7 +192,7 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
       if (!trimmed) return;
       const [name = '', ...rest] = trimmed.split(/\s+/);
       const arg = rest.join(' ');
-      const views: Record<string, ViewId> = { write: 'write', profiles: 'profiles', extract: 'extract', blend: 'blend', settings: 'settings' };
+      const views: Record<string, ViewId> = { write: 'write', profiles: 'profiles', rules: 'rules', extract: 'extract', blend: 'blend', settings: 'settings' };
       const own = commandsRef.current.get(name);
       if (own) return own(arg);
       if (views[name]) return go(views[name]!);
@@ -153,6 +206,14 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
         const own2 = commandsRef.current.get(k ?? '');
         if (own2) return own2(v);
       }
+      if (name === 'rule' || name === 'rules-toggle') {
+        const q = arg.toLowerCase();
+        const hit = ruleSummaries.find((r) => r.id === q || r.name.toLowerCase().startsWith(q));
+        if (!hit) return notify(arg ? `No rule set "${arg}"` : 'Usage: :rule <name> (toggles it for this project)');
+        const on = activeRuleIds.includes(hit.id);
+        void setActiveRules(on ? activeRuleIds.filter((x) => x !== hit.id) : [...activeRuleIds, hit.id]);
+        return notify(`${hit.name} ${on ? 'off' : 'on'} for this project`);
+      }
       if (name === 'profile' || name === 'project') {
         const q = arg.toLowerCase();
         const kind = name === 'project' ? 'project' : 'general';
@@ -165,18 +226,19 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
       notify(`Not a command: ${name}. :help lists the commands.`);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [go, updateSettings, summaries, setActiveGeneral],
+    [go, updateSettings, summaries, setActiveGeneral, ruleSummaries, activeRuleIds, setActiveRules],
   );
 
   const value = useMemo<AppState>(
     () => ({
       backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged,
       language, activeGeneralId, setActiveGeneral, generalMismatch: mismatch,
+      ruleSummaries, ruleSets, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged,
       view, viewArg, go, toast, notify,
       prompt, openPrompt: (prefix, onSubmit, onClose) => setPrompt({ prefix, onSubmit, onClose }), closePrompt: () => setPrompt(null),
-      registerCommands, runCommand, helpOpen, setHelpOpen,
+      registerCommands, runCommand, helpOpen, setHelpOpen, leaderOpen, setLeaderOpen, leaderRef, cheatOpen, setCheatOpen,
     }),
-    [backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen],
+    [backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, ruleSummaries, ruleSets, activeRuleIds, setActiveRules, refreshRules, ruleSetChanged, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen, leaderOpen, cheatOpen],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

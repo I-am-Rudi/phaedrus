@@ -10,7 +10,8 @@
 import type { Editor } from '@tiptap/core';
 import type { Backend } from '@shared/api';
 import { sectionTitle, type DocBlock } from '@shared/document';
-import { effectiveMoves, ownerOf } from '@shared/profile/model';
+import { effectiveMoves, newMove, ownerOf } from '@shared/profile/model';
+import { activeRules, type RuleEvent, type RuleSet } from '@shared/rules';
 import { proseOf } from '@shared/latex';
 import { findQuote, hash } from '@shared/spans';
 import type { EditFeedback, GrammarIssue, Mode, Settings, StyleMove, StyleSuggestion, TasteProfile } from '@shared/types';
@@ -26,9 +27,13 @@ export interface GrammarEntry {
 export interface StyleEntry {
   id: string;
   kind: 'style';
-  category: 'style';
+  /** "style" for taste-profile moves, "rules" for rule violations. */
+  category: 'style' | 'rules';
   s: StyleSuggestion;
+  /** The move, or for a rule violation a move-shaped view of the rule. */
   move: StyleMove;
+  /** Set for rule violations. */
+  rule?: { setId: string; ruleId: string };
   original: string;
   status: 'open' | 'revising' | 'checking';
 }
@@ -47,6 +52,9 @@ export interface CheckerDeps {
   backend: Backend;
   settings(): Settings;
   profiles(): { general: TasteProfile | null; project: TasteProfile | null };
+  /** Active rule sets. */
+  ruleSets(): RuleSet[];
+  onRuleEvent(setId: string, ev: RuleEvent): void;
   docType(): string;
   /** The project's language, or the default. */
   language(): string;
@@ -238,7 +246,7 @@ export class Checker {
   private async runStyle() {
     const gen = ++this.styleGen;
     const { general, project } = this.deps.profiles();
-    if (!general && !project) return;
+    if (!general && !project && !this.deps.ruleSets().length) return;
     const docType = this.deps.docType();
     const bs = blocks(this.editor.state.doc);
     const items = getIssues(this.editor.state);
@@ -253,17 +261,21 @@ export class Checker {
 
     // Work out each block's section and the moves that apply there.
     let section = '';
-    const jobs: { b: BlockInfo; moves: StyleMove[]; section: string; key: string }[] = [];
+    const ruleSets = this.deps.ruleSets();
+    const jobs: { b: BlockInfo; moves: StyleMove[]; rules: ReturnType<typeof activeRules>; section: string; key: string }[] = [];
     for (const b of bs) {
       const db: DocBlock = b.type === 'heading' ? { type: 'heading', level: b.level, text: b.text } : { type: 'paragraph', text: b.text };
       const title = sectionTitle(db);
       if (title) section = title;
       if (b.type === 'heading' || proseOf(b.text).trim().length < MIN_STYLE_CHARS || busyBlocks.has(b.index)) continue;
       const moves = effectiveMoves(general, project, { docType, section });
+      const rules = activeRules(ruleSets, { docType, section });
+      if (!moves.length && !rules.length) continue;
       const movesKey = moves.map((m) => `${m.id}:${m.title}:${m.description}:${m.notes.length}`).join('|');
-      const key = hash([b.text, docType, section, movesKey].join('\u0000'));
+      const rulesKey = rules.map((r) => `${r.key}:${r.description}:${r.notes.length}`).join('|');
+      const key = hash([b.text, docType, section, movesKey, rulesKey].join('\u0000'));
       if (this.appliedStyle.get(b.index) === key) continue;
-      jobs.push({ b, moves, section, key });
+      jobs.push({ b, moves, rules, section, key });
     }
     if (!jobs.length) return;
 
@@ -288,6 +300,7 @@ export class Checker {
             before: neighbour(-1),
             after: neighbour(1),
             moves: job.moves,
+            rules: job.rules,
             docType,
             section: job.section,
             metrics: general?.metrics ?? project?.metrics,
@@ -295,7 +308,7 @@ export class Checker {
           this.styleCache.set(job.key, suggestions);
         }
         if (gen !== this.styleGen) return;
-        this.applyStyle(job.b.text, job.b.index, suggestions, job.moves, job.key);
+        this.applyStyle(job.b.text, job.b.index, suggestions, job.moves, job.rules, job.key);
       }
       this.stylePhase = 'idle';
       if (this.message.startsWith('Style:')) this.message = '';
@@ -306,15 +319,16 @@ export class Checker {
     this.emit();
   }
 
-  private applyStyle(text: string, index: number, suggestions: StyleSuggestion[], moves: StyleMove[], key: string) {
+  private applyStyle(text: string, index: number, suggestions: StyleSuggestion[], moves: StyleMove[], rules: ReturnType<typeof activeRules>, key: string) {
     const b = this.locate(text, index);
     if (!b) return;
     const teacher = this.deps.settings().mode === 'teacher';
     const items: IssueRange[] = [];
     const taken: { from: number; to: number }[] = [];
     for (const s of suggestions) {
-      const move = moves.find((m) => m.id === s.moveId);
-      if (!move || this.dismissed.has(`s:${s.moveId}|${s.quote}`)) continue;
+      const rule = s.ruleKey ? rules.find((r) => r.key === s.ruleKey) : undefined;
+      const move = rule ? ruleAsMove(rule) : moves.find((m) => m.id === s.moveId);
+      if (!move || this.dismissed.has(`s:${move.id}|${s.quote}`)) continue;
       const r = findQuote(text, s.quote);
       if (!r) continue;
       // Overlapping suggestions would share one underline and one revision;
@@ -324,8 +338,12 @@ export class Checker {
       const id = `s:${hash(text + s.moveId + s.quote)}`;
       const from = b.posAt(r.from);
       const to = b.posAt(r.to - 1) + 1;
-      items.push({ id, category: 'style', from, to, text: s.quote, hidden: teacher && move.hintLevel === 0 });
-      this.entries.set(id, { id, kind: 'style', category: 'style', s, move, original: s.quote, status: 'open' });
+      const category = rule ? 'rules' : 'style';
+      items.push({ id, category, from, to, text: s.quote, hidden: teacher && move.hintLevel === 0 });
+      this.entries.set(id, {
+        id, kind: 'style', category, s, move, original: s.quote, status: 'open',
+        ...(rule ? { rule: { setId: rule.setId, ruleId: rule.id } } : {}),
+      });
     }
     this.appliedStyle.set(b.index, key);
     this.dispatch({ type: 'replace', kind: 'style', from: b.pos, to: b.end, items });
@@ -360,6 +378,7 @@ export class Checker {
     const e = this.entries.get(id);
     if (e?.kind !== 'style') return;
     this.replace(id, e.s.rewrite);
+    if (e.rule) return this.deps.onRuleEvent(e.rule.setId, { type: 'accept', ruleId: e.rule.ruleId });
     await this.profileEvent({ type: 'accept', moveId: e.move.id });
   }
 
@@ -374,6 +393,7 @@ export class Checker {
     const e = this.entries.get(id);
     if (e?.kind !== 'style') return;
     this.dismiss(id);
+    if (e.rule) return this.deps.onRuleEvent(e.rule.setId, { type: 'reject', ruleId: e.rule.ruleId, reason, docType: this.deps.docType() });
     await this.profileEvent({ type: 'reject', moveId: e.move.id, reason, docType: this.deps.docType() });
   }
 
@@ -398,7 +418,7 @@ export class Checker {
       this.feedback.unshift({ id: `f:${id}:${Date.now()}`, move: e.move, original: e.original, revised, feedback });
       this.dispatch({ type: 'remove', ids: [id] });
       this.entries.delete(id);
-      await this.profileEvent({ type: 'edit', moveId: e.move.id, feedback, revised });
+      if (!e.rule) await this.profileEvent({ type: 'edit', moveId: e.move.id, feedback, revised });
       this.schedule();
     } catch (err) {
       e.status = 'revising';
@@ -436,4 +456,16 @@ export class Checker {
 
 function clean(e: unknown): string {
   return (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
+}
+
+/** A rule shown through the same card and feedback machinery as a style move. */
+function ruleAsMove(rule: ReturnType<typeof activeRules>[number]): StyleMove {
+  return newMove({
+    id: `rule:${rule.key}`,
+    title: rule.title,
+    description: rule.description,
+    hintLevel: 3,
+    examples: rule.good.map((g) => ({ text: g, kind: 'author' as const })),
+    notes: rule.notes,
+  });
 }
