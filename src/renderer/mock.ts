@@ -3,7 +3,7 @@
 // UI be developed and demoed without Electron or an LLM.
 
 import type { Backend, ProfileSummary, Snapshot } from '@shared/api';
-import { checkStyle, editFeedback, extractProfile, extractRules, findBlendConflicts, type LLM } from '@shared/coach';
+import { checkStyle, checkStyleBatch, editFeedback, extractProfile, extractRules, findBlendConflicts, type LLM } from '@shared/coach';
 import { applyRuleEvent, newRule, newRuleSet, parseRuleSet, serializeRuleSet, type RuleSet } from '@shared/rules';
 import { harperDialectFor } from '@shared/language';
 import { hasLatex, mapBack, maskLatex } from '@shared/latex';
@@ -83,13 +83,11 @@ function sampleRules(): RuleSet {
   return set;
 }
 
-/** Rule-based stand-in for an LLM, answering in the same JSON the real prompts ask for. */
-const fakeLLM: LLM = {
-  async complete(req) {
-    await new Promise((r) => setTimeout(r, 300));
-    if (req.prompt.includes('<paragraph>') && req.prompt.includes('"suggestions"')) {
-      const paragraph = /<paragraph>([\s\S]*?)<\/paragraph>/.exec(req.prompt)?.[1] ?? '';
-      const suggestions: unknown[] = [];
+
+/** Stand-in style and rule findings for one paragraph. */
+function fakeSuggestions(paragraph: string, prompt: string): Record<string, unknown>[] {
+  const req = { prompt };
+      const suggestions: Record<string, unknown>[] = [];
       const clearing = /\b(In this (?:section|paper|chapter|paragraph),? we will (?:now )?(?:discuss|present|show|look at)|It is (?:important|worth) (?:to note|noting) that)\b/i.exec(paragraph);
       if (clearing && req.prompt.includes('no-throat-clearing')) {
         suggestions.push({
@@ -128,7 +126,25 @@ const fakeLLM: LLM = {
           hint_general: 'Short declarative openers: look at the first sentence.',
         });
       }
-      return JSON.stringify({ suggestions });
+  return suggestions;
+}
+
+/** Rule-based stand-in for an LLM, answering in the same JSON the real prompts ask for. */
+const fakeLLM: LLM = {
+  async complete(req) {
+    // Simulated model latency; tests can slow it down via window.__mockDelay.
+    const delay = (globalThis as { __mockDelay?: number }).__mockDelay ?? 900;
+    await new Promise((r) => setTimeout(r, req.prompt.includes('"suggestions"') ? delay : 300));
+    const batch = [...req.prompt.matchAll(/<paragraph id="([^"]+)"[^>]*>([\s\S]*?)<\/paragraph>/g)];
+    if (batch.length && req.prompt.includes('"suggestions"')) {
+      const all = batch.flatMap(([, id, text]) => {
+        const one = fakeSuggestions(text!, req.prompt);
+        return one.map((s) => ({ ...s, paragraph: id }));
+      });
+      return JSON.stringify({ suggestions: all });
+    }
+    if (req.prompt.includes('<paragraph>') && req.prompt.includes('"suggestions"')) {
+      return JSON.stringify({ suggestions: fakeSuggestions(/<paragraph>([\s\S]*?)<\/paragraph>/.exec(req.prompt)?.[1] ?? '', req.prompt) });
     }
     if (req.prompt.includes('<revised>')) {
       const original = /<original>([\s\S]*?)<\/original>/.exec(req.prompt)?.[1] ?? '';
@@ -316,6 +332,7 @@ export function createMockBackend(): Backend {
       extract: (sources, name, kind, language) => extractProfile(fakeLLM, sources, { name, kind, language, takenIds: [...profiles.keys()] }),
       diff: async (a, b) => diffProfiles(a, b),
       checkStyle: (req) => checkStyle(fakeLLM, req),
+      checkStyleBatch: (req) => checkStyleBatch(fakeLLM, req),
       editFeedback: (req) => editFeedback(fakeLLM, req),
       blendConflicts: (p) => findBlendConflicts(fakeLLM, p),
     },

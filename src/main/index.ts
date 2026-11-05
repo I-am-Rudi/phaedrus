@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell } from 'electron';
 import { channel, type Backend } from '@shared/api';
-import { checkStyle, editFeedback, extractProfile, extractRules, findBlendConflicts } from '@shared/coach';
+import { checkStyle, checkStyleBatch, editFeedback, extractProfile, extractRules, findBlendConflicts } from '@shared/coach';
 import { applyRuleEvent, parseRuleSet, serializeRuleSet } from '@shared/rules';
 import { diffProfiles } from '@shared/profile/diff';
 import { exportBundle, exportMarkdown, importProfile } from '@shared/profile/exchange';
@@ -135,6 +135,7 @@ const backend: Backend = {
     },
     diff: async (current, incoming) => diffProfiles(current, incoming),
     checkStyle: async (req) => checkStyle(await llm(), req),
+    checkStyleBatch: async (req) => checkStyleBatch(await llm(), req),
     editFeedback: async (req) => editFeedback(await llm(), req),
     blendConflicts: async (p) => findBlendConflicts(await llm(), p),
   },

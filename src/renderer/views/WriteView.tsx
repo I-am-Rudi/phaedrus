@@ -126,7 +126,7 @@ export function WriteView() {
   // Re-render on checker changes.
   const version = useSyncExternalStore(
     (fn) => checker?.subscribe(fn) ?? (() => {}),
-    () => (checker ? `${checker.entries.size}:${checker.feedback.length}:${checker.grammarPhase}:${checker.stylePhase}:${checker.message}:${[...checker.entries.values()].map((e) => (e.kind === 'style' ? e.status : '')).join('')}` : ''),
+    () => (checker ? `${checker.entries.size}:${checker.feedback.length}:${checker.grammarPhase}:${checker.stylePhase}:${checker.message}:${checker.styleProgress.waiting}/${checker.styleProgress.checking}/${checker.styleProgress.total}:${[...checker.entries.values()].map((e) => (e.kind === 'style' ? e.status : '')).join('')}` : ''),
   );
 
   // Context changes that invalidate style results.
@@ -416,6 +416,10 @@ export function WriteView() {
 
   const setMode = (mode: Mode) => void app.updateSettings({ mode });
   const busy = checker && (checker.grammarPhase === 'busy' || checker.stylePhase === 'busy');
+  const sp = checker?.styleProgress ?? { waiting: 0, checking: 0, total: 0 };
+  const styleLeft = sp.waiting + sp.checking;
+  const styleDone = Math.max(0, sp.total - styleLeft);
+  const lastSecs = checker?.lastStyleMs ? (checker.lastStyleMs / 1000).toFixed(1) : null;
   const err = checker && (checker.grammarPhase === 'error' || checker.stylePhase === 'error' || !!checker.message);
   const projects = app.summaries.filter((s) => s.kind === 'project');
   const generals = app.summaries.filter((s) => s.kind === 'general' && languageMatches(s.language, app.language));
@@ -460,7 +464,15 @@ export function WriteView() {
             </span>
           )}
           <span className={`dot ${err ? 'err' : busy ? 'busy' : 'ok'}`} />
-          {err ? <span className="error" title={checker?.message}>{checker?.message.slice(0, 80)}</span> : busy ? (checker?.stylePhase === 'busy' ? 'Checking style' : 'Checking') : 'Up to date'}
+          {err ? (
+            <span className="error" title={checker?.message}>{checker?.message.slice(0, 80)}</span>
+          ) : styleLeft ? (
+            <span title={lastSecs ? `Last style request took ${lastSecs} s` : undefined}>Checking style · {styleDone} of {sp.total}</span>
+          ) : busy ? (
+            'Checking spelling'
+          ) : (
+            <span title={lastSecs ? `Last style request took ${lastSecs} s` : undefined}>Up to date</span>
+          )}
         </span>
       </div>
       <div className="write">
@@ -512,6 +524,15 @@ export function WriteView() {
                 </button>
               ))}
             </div>
+            {styleLeft > 0 && (
+              <div className="progress" title="Paragraphs waiting are marked in the margin">
+                <div className="small">
+                  Checking style{app.ruleSets.length ? ' and rules' : ''}: {styleDone} of {sp.total} paragraphs{sp.checking ? `, ${sp.checking} in progress` : ''}
+                  {lastSecs && <span className="muted"> · last request {lastSecs} s</span>}
+                </div>
+                <div className="bar"><i style={{ width: `${sp.total ? (styleDone / sp.total) * 100 : 0}%` }} /></div>
+              </div>
+            )}
             {settings.mode === 'teacher' && (
               <div className="small muted">Style issues show a hint only. Revise the passage; feedback comes when you leave the paragraph.</div>
             )}

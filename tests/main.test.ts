@@ -86,10 +86,12 @@ describe('CLI providers', () => {
   it('claude -p: sends system+prompt on stdin and reads the JSON result', async () => {
     const fake = join(dir, 'fake-claude');
     const seen = join(dir, 'claude-stdin.txt');
+    const argsSeen = join(dir, 'claude-args.txt');
     await writeFile(
       fake,
       `#!/bin/sh
 cat > "${seen}"
+printf '%s\\n' "$@" > "${argsSeen}"
 case "$*" in *"-p --output-format json --model haiku"*) ;; *) echo "wrong args: $*" >&2; exit 2;; esac
 echo '{"type":"result","is_error":false,"result":"{\\"ok\\": true}"}'`,
     );
@@ -99,7 +101,29 @@ echo '{"type":"result","is_error":false,"result":"{\\"ok\\": true}"}'`,
     const out = await createLLM(settings, dir).complete({ system: 'SYSTEM', prompt: 'hello', tier: 'fast' });
     expect(out).toBe('{"ok": true}');
     const stdin = await import('node:fs/promises').then((fs) => fs.readFile(seen, 'utf8'));
-    expect(stdin).toBe('SYSTEM\n\n---\n\nhello');
+    // Lean call: our system prompt as a flag, the prompt alone on stdin, no tools, MCP, skills or user settings.
+    expect(stdin).toBe('hello');
+    const args = await import('node:fs/promises').then((fs) => fs.readFile(argsSeen, 'utf8'));
+    expect(args.split('\n')).toEqual(expect.arrayContaining(['--system-prompt', 'SYSTEM', '--tools', '', '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', 'project', '--no-session-persistence']));
+  });
+
+  it('claude -p: falls back to a plain call when the CLI rejects the lean flags', async () => {
+    const fake = join(dir, 'fake-claude-old');
+    const seen = join(dir, 'claude-old-stdin.txt');
+    await writeFile(
+      fake,
+      `#!/bin/sh
+case "$*" in *--system-prompt*) cat >/dev/null; echo "error: unknown option '--system-prompt'" >&2; exit 1;; esac
+cat > "${seen}"
+echo '{"type":"result","is_error":false,"result":"plain"}'`,
+    );
+    await chmod(fake, 0o755);
+    const settings = { ...defaultSettings(dir), provider: 'claude-cli' as const };
+    settings.claudeCli = { ...settings.claudeCli, binary: fake };
+    const llm = createLLM(settings, dir);
+    expect(await llm.complete({ system: 'S', prompt: 'p', tier: 'fast' })).toBe('plain');
+    const stdin = await import('node:fs/promises').then((fs) => fs.readFile(seen, 'utf8'));
+    expect(stdin).toBe('S\n\n---\n\np');
   });
 
   it('claude -p: turns auth failures into a sign-in hint', async () => {

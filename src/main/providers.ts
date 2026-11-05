@@ -73,14 +73,46 @@ function openaiCompatible(cfg: Settings['openai']): LLM {
   };
 }
 
+/**
+ * Flags that keep each `claude -p` call small and fast while still using the
+ * subscription login (`--bare` would be faster but requires an API key):
+ * our own system prompt instead of Claude Code's, no built-in tools, none of
+ * the user's MCP servers, skills, hooks or plugins, and no saved session.
+ */
+export function leanClaudeArgs(system: string): string[] {
+  return [
+    '--system-prompt', system,
+    '--tools', '',
+    '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
+    '--disable-slash-commands',
+    '--setting-sources', 'project',
+    '--no-session-persistence',
+  ];
+}
+
+/** Per binary: false once an older CLI rejected the lean flags. */
+const leanSupported = new Map<string, boolean>();
+
 function claudeCli(cfg: Settings['claudeCli'], workDir: string): LLM {
   return {
     async complete(r) {
       const model = r.tier === 'strong' ? cfg.strongModel : cfg.fastModel;
-      const args = ['-p', '--output-format', 'json'];
-      if (model) args.push('--model', model);
+      const bin = cfg.binary || 'claude';
+      const base = ['-p', '--output-format', 'json'];
+      if (model) base.push('--model', model);
       // Run in an empty folder so no project CLAUDE.md or files leak into the prompt.
-      const res = await run(cfg.binary || 'claude', args, { input: combined(r), cwd: workDir, timeoutMs: 240_000 });
+      const lean = leanSupported.get(bin) !== false;
+      let res = await run(bin, lean ? [...base, ...leanClaudeArgs(r.system)] : base, {
+        input: lean ? r.prompt : combined(r),
+        cwd: workDir,
+        timeoutMs: 240_000,
+      });
+      if (lean && res.code !== 0 && /unknown option|unrecognized|invalid option|error: option/i.test(res.stderr)) {
+        leanSupported.set(bin, false);
+        res = await run(bin, base, { input: combined(r), cwd: workDir, timeoutMs: 240_000 });
+      } else if (lean && res.code === 0) {
+        leanSupported.set(bin, true);
+      }
       let parsed: any = null;
       try {
         parsed = JSON.parse(res.stdout);

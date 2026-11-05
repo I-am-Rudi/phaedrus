@@ -211,6 +211,70 @@ Return JSON:
 At most ${req.limit ?? 3} style suggestions plus any rule violations, most important first. "quote" must match the paragraph character for character.`;
 }
 
+export interface StyleBatchRequest extends Omit<StyleCheckRequest, 'paragraph' | 'section'> {
+  /** Paragraphs that share the same moves and rules (same section scope). */
+  paragraphs: { id: string; text: string; section: string }[];
+}
+
+/** Several paragraphs in one request: one model call (and one CLI start) instead of many. */
+export function styleBatchPrompt(req: StyleBatchRequest): string {
+  const blocks = req.paragraphs
+    .map((p) => {
+      const drift = metricDrift(p.text, req.metrics);
+      const d = drift.length ? `\nMeasured drift: ${drift.map((x) => `${x.label} ${x.yours} vs ${x.target}`).join('; ')}` : '';
+      return `<paragraph id="${p.id}" section="${esc(p.section || 'unspecified')}">${p.text}</paragraph>${d}`;
+    })
+    .join('\n\n');
+  return `Document type: ${req.docType || 'unspecified'}
+
+${req.moves.length ? `Style moves (higher weight = the user cares more; respect user notes):\n${req.moves.map(formatMove).join('\n')}\n` : ''}${req.rules?.length ? `\nWriting rules (requirements: flag every clear violation, regardless of style; respect user notes):\n${req.rules.map(formatRule).join('\n')}\n` : ''}
+${req.before ? `Text before these paragraphs (context only, do not flag):\n<context>${req.before}</context>\n\n` : ''}Paragraphs to check, in document order:
+${blocks}
+${req.after ? `\nText after them (context only, do not flag):\n<context>${req.after}</context>\n` : ''}
+Check each paragraph on its own. Return JSON:
+{
+  "suggestions": [
+    {
+      "paragraph": "id of the paragraph the quote is from",
+      "move_id": "id of the style move this is about (omit for a rule violation)",
+      "rule_id": "id of the writing rule that is violated (omit for a style suggestion)",
+      "quote": "exact, contiguous text copied from that paragraph, as short as possible (a phrase or one sentence)",
+      "issue": "one sentence: what drifts from the move, or which rule is broken and how",
+      "rewrite": "replacement for exactly the quoted text, applying the move",
+      "explanation": "one or two sentences on why the rewrite is closer to the move",
+      "hint_specific": "a question or nudge that points at what to change here without giving the answer",
+      "hint_general": "names the move and what to look at, without specifics"
+    }
+  ]
+}
+At most ${req.limit ?? 3} style suggestions per paragraph plus any rule violations, most important first. "quote" must match its paragraph character for character.`;
+}
+
+/** Check several paragraphs; returns suggestions keyed by paragraph id. */
+export async function checkStyleBatch(llm: LLM, req: StyleBatchRequest): Promise<Record<string, StyleSuggestion[]>> {
+  const out: Record<string, StyleSuggestion[]> = Object.fromEntries(req.paragraphs.map((p) => [p.id, []]));
+  const todo = req.paragraphs.filter((p) => proseOf(p.text).replace(/\bX\b/g, '').trim().length >= 20);
+  if ((!req.moves.length && !req.rules?.length) || !todo.length) return out;
+  if (todo.length === 1) {
+    const p = todo[0]!;
+    out[p.id] = await checkStyle(llm, { ...req, paragraph: p.text, section: p.section });
+    return out;
+  }
+  const reply = await llm.complete({
+    system: CHECK_SYSTEM,
+    prompt: styleBatchPrompt({ ...req, paragraphs: todo }),
+    tier: 'fast',
+    maxTokens: 900 * todo.length + 600,
+  });
+  const data = extractJson<any>(reply);
+  const raw: any[] = Array.isArray(data) ? data : Array.isArray(data?.suggestions) ? data.suggestions : [];
+  for (const p of todo) {
+    const mine = raw.filter((s) => str(s?.paragraph) === p.id);
+    out[p.id] = parseSuggestions(JSON.stringify({ suggestions: mine }), { paragraph: p.text, moves: req.moves, rules: req.rules, limit: req.limit });
+  }
+  return out;
+}
+
 export async function checkStyle(llm: LLM, req: StyleCheckRequest): Promise<StyleSuggestion[]> {
   // Skip paragraphs that are mostly equations or markup.
   if ((!req.moves.length && !req.rules?.length) || proseOf(req.paragraph).replace(/\bX\b/g, '').trim().length < 20) return [];

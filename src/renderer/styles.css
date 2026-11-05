@@ -302,3 +302,14 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .rules-picker > summary { list-style: none; }
 .rules-picker > summary::-webkit-details-marker { display: none; }
 .rules-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 14; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 3px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
+
+/* ---------- style check progress ---------- */
+.page .ProseMirror > .para-queued, .page .ProseMirror > .para-checking { position: relative; }
+.page .ProseMirror > .para-queued::before, .page .ProseMirror > .para-checking::before {
+  content: ''; position: absolute; left: -16px; top: 0.35em; bottom: 0.35em; width: 3px; border-radius: 2px;
+}
+.page .ProseMirror > .para-queued::before { background: var(--line-strong); }
+.page .ProseMirror > .para-checking::before { background: var(--accent); }
+.progress { display: flex; flex-direction: column; gap: 4px; }
+.progress .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.progress .bar > i { display: block; height: 100%; background: var(--accent); }

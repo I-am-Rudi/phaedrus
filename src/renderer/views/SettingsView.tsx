@@ -112,7 +112,11 @@ export function SettingsView() {
           )}
           <div className="row">
             <button className="btn small" disabled={busy} onClick={() => void act('Checking', async () => { const r = await backend.providers.status(); return `${r.ok ? 'Ready' : 'Not ready'}: ${r.detail}`; })}>Status</button>
-            <button className="btn small" disabled={busy} onClick={() => void act('Testing', () => backend.providers.test().then((r) => `Model replied: ${r}`))}>Send a test prompt</button>
+            <button className="btn small" disabled={busy} onClick={() => void act('Testing', async () => {
+              const t = performance.now();
+              const r = await backend.providers.test();
+              return `Model replied in ${((performance.now() - t) / 1000).toFixed(1)} s: ${r}`;
+            })}>Send a test prompt</button>
             {(s.provider === 'claude-cli' || s.provider === 'codex-cli') && (
               <button className="btn small" disabled={busy} onClick={() => void act('Opening browser sign-in', () => backend.providers.login())}>Sign in</button>
             )}

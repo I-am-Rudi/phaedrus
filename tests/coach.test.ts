@@ -130,3 +130,42 @@ describe('edit feedback and conflicts', () => {
     expect(c).toEqual([{ a: { profileId: 'P', moveId: 'a', title: 'A' }, b: { profileId: 'Q', moveId: 'b', title: 'B' }, reason: 'opposite' }]);
   });
 });
+
+describe('batched style checks', () => {
+  it('sends several paragraphs in one request and splits the reply by paragraph', async () => {
+    const { checkStyleBatch } = await import('@shared/coach');
+    const moves = [newMove({ title: 'Short openers', description: 'Open with a short claim.' })];
+    const p1 = 'In this paragraph we will now discuss the various aspects of renormalisation in curved spacetime.';
+    const p2 = 'Then we compute the expectation value of the stress tensor for a free scalar field.';
+    const calls: string[] = [];
+    const llm: LLM = {
+      complete: async (r) => {
+        calls.push(r.prompt);
+        return JSON.stringify({
+          suggestions: [
+            { paragraph: 'a', move_id: 'short-openers', quote: 'In this paragraph we will now discuss', issue: 'i', rewrite: 'r', explanation: 'e' },
+            { paragraph: 'b', move_id: 'short-openers', quote: 'Then we compute', issue: 'i', rewrite: 'r', explanation: 'e' },
+            { paragraph: 'b', move_id: 'short-openers', quote: 'not in b', issue: 'i', rewrite: 'r', explanation: 'e' },
+          ],
+        });
+      },
+    };
+    const out = await checkStyleBatch(llm, {
+      paragraphs: [{ id: 'a', text: p1, section: 'Intro' }, { id: 'b', text: p2, section: 'Intro' }, { id: 'c', text: 'Too short.', section: 'Intro' }],
+      moves, docType: 'paper',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('<paragraph id="a" section="Intro">');
+    expect(out.a!.map((s) => s.quote)).toEqual(['In this paragraph we will now discuss']);
+    expect(out.b!.map((s) => s.quote)).toEqual(['Then we compute']);
+    expect(out.c).toEqual([]);
+  });
+
+  it('uses the single-paragraph prompt for one paragraph', async () => {
+    const { checkStyleBatch } = await import('@shared/coach');
+    const calls: string[] = [];
+    const llm: LLM = { complete: async (r) => (calls.push(r.prompt), '{"suggestions":[]}') };
+    await checkStyleBatch(llm, { paragraphs: [{ id: 'a', text: 'A paragraph that is long enough to be checked by the model.', section: '' }], moves: [newMove({ title: 'x' })], docType: '' });
+    expect(calls[0]).toContain('<paragraph>');
+  });
+});
