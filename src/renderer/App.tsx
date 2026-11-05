@@ -26,7 +26,7 @@ export function App() {
   return (
     <div className="app">
       <nav className="rail">
-        <div className="mark">sc</div>
+        <div className="mark">G</div>
         {(['write', 'profiles', 'extract', 'blend'] as ViewId[]).map(button)}
         <div className="spacer" />
         {button('settings')}

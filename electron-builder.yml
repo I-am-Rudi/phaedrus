@@ -1,5 +1,5 @@
-appId: dev.stylecoach.app
-productName: stylecoach
+appId: dev.gorgias.app
+productName: Gorgias
 directories:
   output: dist
 files:

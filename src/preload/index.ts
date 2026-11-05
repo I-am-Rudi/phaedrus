@@ -17,4 +17,4 @@ for (const [group, methods] of Object.entries(groups)) {
   for (const m of methods) api[group]![m] = (...args) => ipcRenderer.invoke(channel(group, m), ...args);
 }
 
-contextBridge.exposeInMainWorld('stylecoach', api);
+contextBridge.exposeInMainWorld('gorgias', api);

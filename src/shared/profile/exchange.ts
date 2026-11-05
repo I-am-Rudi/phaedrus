@@ -31,12 +31,12 @@ export function exportMarkdown(p: TasteProfile, policy: ExcerptPolicy = 'all'): 
   return serializeProfile(applyExcerptPolicy(p, policy));
 }
 
-const BUNDLE_README = `This is a stylecoach taste-profile bundle.
+const BUNDLE_README = `This is a gorgias taste-profile bundle.
 
 profile.md   the profile: YAML frontmatter, then one "## Move" section per style move
 sources.md   the works the profile was extracted from
 
-Import it in stylecoach (Profiles > Import), or read and edit profile.md in any text editor.
+Import it in gorgias (Profiles > Import), or read and edit profile.md in any text editor.
 `;
 
 export function exportBundle(p: TasteProfile, policy: ExcerptPolicy = 'all'): Uint8Array {

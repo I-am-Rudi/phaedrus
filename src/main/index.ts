@@ -134,7 +134,7 @@ function createWindow() {
     height: 880,
     minWidth: 900,
     minHeight: 600,
-    title: 'stylecoach',
+    title: 'Gorgias',
     backgroundColor: '#14161a',
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.mjs'), sandbox: false, contextIsolation: true },
   });

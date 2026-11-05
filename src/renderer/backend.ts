@@ -2,7 +2,7 @@ import type { Backend } from '@shared/api';
 
 declare global {
   interface Window {
-    stylecoach?: Backend;
+    gorgias?: Backend;
   }
 }
 
@@ -12,10 +12,10 @@ declare global {
  * in the Electron build that branch is removed entirely.
  */
 export async function loadBackend(): Promise<{ backend: Backend; mock: boolean }> {
-  if (window.stylecoach) return { backend: window.stylecoach, mock: false };
+  if (window.gorgias) return { backend: window.gorgias, mock: false };
   if (import.meta.env.VITE_MOCK_BACKEND) {
     const { createMockBackend } = await import('./mock');
     return { backend: createMockBackend(), mock: true };
   }
-  throw new Error('stylecoach backend not available: run the desktop app (npm run dev) or the browser preview (npm run web).');
+  throw new Error('gorgias backend not available: run the desktop app (npm run dev) or the browser preview (npm run web).');
 }

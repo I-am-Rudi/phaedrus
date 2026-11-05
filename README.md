@@ -1,4 +1,6 @@
-# stylecoach
+# Gorgias
+
+Named after Gorgias of Leontini (about 483 to 375 BC), the sophist who taught rhetoric in Athens.
 
 A desktop writing assistant that checks spelling and grammar and coaches your style toward authors you choose. Style suggestions come from a **taste profile**: a Markdown file that lists concrete moves extracted from writing you admire, which you can edit, export, blend and keep under git.
 
@@ -47,7 +49,7 @@ Profiles are plain Markdown in the profiles folder (Settings). Hand-written file
 
 ````markdown
 ---
-stylecoach: 1
+gorgias: 1
 id: plain-physics
 name: Plain physics
 kind: general
