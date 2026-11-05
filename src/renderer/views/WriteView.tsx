@@ -5,7 +5,7 @@ import type { OpenedDocument } from '@shared/api';
 import { DOC_TYPES, parseDocumentFull, serializeDocument, type DocBlock } from '@shared/document';
 import { baseLabel, baseLanguage, harperDialectFor, languageLabel, languageMatches } from '@shared/language';
 import { hintFor } from '@shared/profile/feedback';
-import type { Category, Mode } from '@shared/types';
+import type { Category, Mode, TasteProfile } from '@shared/types';
 import { Checker, type Entry, type FeedbackEntry, type StyleEntry } from '../editor/checker';
 import { BlockSeparators, blocks, IssuesExtension, LatexHeadings } from '../editor/issues';
 import { PlainTextPaste } from '../editor/paste';
@@ -152,7 +152,7 @@ export function WriteView() {
     const c = new Checker(editor, {
       backend,
       settings: () => live.current.settings,
-      profiles: () => ({ general: live.current.general, project: live.current.project }),
+      profiles: () => ({ general: live.current.general, project: live.current.project, always: liveApp.current.alwaysProfiles }),
       ruleSets: () => liveApp.current.ruleSets,
       onRuleEvent: (setId, ev) => {
         void liveApp.current.backend.rules.applyEvent(setId, ev).then((s) => liveApp.current.ruleSetChanged(s));
@@ -174,7 +174,8 @@ export function WriteView() {
   );
 
   // Context changes that invalidate style results.
-  const profileKey = `${general?.id}:${general?.moves.map((m) => m.id + m.description + m.enabled + m.scope.docTypes + m.scope.sections).join()}|${project?.id}:${project?.moves.map((m) => m.id + m.description + m.enabled).join()}`;
+  const movesKey = (p: TasteProfile | null) => `${p?.id}:${p?.moves.map((m) => m.id + m.description + m.enabled + m.scope.docTypes + m.scope.sections).join()}`;
+  const profileKey = [general, project, ...app.alwaysProfiles].map(movesKey).join('|');
   const rulesKey = app.ruleSets.map((s) => s.id + s.rules.map((r) => r.id + r.description + r.enabled + r.notes.length + r.scope.sections).join()).join('|');
   useEffect(() => checker?.invalidate('style'), [checker, profileKey, rulesKey, docType]);
   const language = app.language;
@@ -671,6 +672,11 @@ export function WriteView() {
           <option value="">No project profile</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        {app.alwaysProfiles.length > 0 && (
+          <span className="tag on" title={`Always on: ${app.alwaysProfiles.map((p) => p.name).join(', ')}`}>
+            +{app.alwaysProfiles.length} always on
+          </span>
+        )}
         <RulesPicker />
         <span className="tag" title={project?.language ? `Language of the project profile ${project.name}` : 'Default language from Settings'}>{languageLabel(language)}</span>
         <div className="seg" role="tablist">
@@ -768,7 +774,7 @@ export function WriteView() {
                 {app.generalMismatch.name} is a {languageLabel(app.generalMismatch.language ?? '')} profile and is not used for {languageLabel(app.language)} text.
               </div>
             )}
-            {!general && !project && !app.ruleSets.length && (
+            {!general && !project && !app.alwaysProfiles.length && !app.ruleSets.length && (
               <div className="small muted">
                 No taste profile selected, so only spelling and grammar are checked.{' '}
                 <a href="#" onClick={(e) => (e.preventDefault(), app.go('extract'))}>Extract one</a>
@@ -962,21 +968,28 @@ function RulesPicker() {
   const app = useApp();
   const options = app.ruleSummaries.filter((r) => languageMatches(r.language, app.language));
   const active = new Set(app.activeRuleIds);
-  const n = options.filter((o) => active.has(o.id)).length;
+  const n = options.filter((o) => active.has(o.id) || app.isAlwaysOn('rules', o.id)).length;
   return (
     <details className="rules-picker">
       <summary className="btn ghost small" title="Rule sets checked for this project">Rules{n ? ` (${n})` : ''}</summary>
       <div className="rules-menu">
-        {options.map((o) => (
-          <label key={o.id} className="inline">
-            <input
-              type="checkbox"
-              checked={active.has(o.id)}
-              onChange={(e) => void app.setActiveRules(e.target.checked ? [...app.activeRuleIds, o.id] : app.activeRuleIds.filter((x) => x !== o.id))}
-            />
-            {o.name} <span className="small muted">{o.rules}</span>
-          </label>
-        ))}
+        {options.map((o) =>
+          app.isAlwaysOn('rules', o.id) ? (
+            <label key={o.id} className="inline" title="Always on: checked in every document. Switch it off on the Rules page.">
+              <input type="checkbox" checked disabled />
+              {o.name} <span className="tag">always on</span>
+            </label>
+          ) : (
+            <label key={o.id} className="inline">
+              <input
+                type="checkbox"
+                checked={active.has(o.id)}
+                onChange={(e) => void app.setActiveRules(e.target.checked ? [...app.activeRuleIds, o.id] : app.activeRuleIds.filter((x) => x !== o.id))}
+              />
+              {o.name} <span className="small muted">{o.rules}</span>
+            </label>
+          ),
+        )}
         {!options.length && <span className="small muted">No rule sets in {languageLabel(app.language)} yet.</span>}
         <a href="#" className="small" onClick={(e) => (e.preventDefault(), app.go('rules'))}>Edit rule sets</a>
       </div>

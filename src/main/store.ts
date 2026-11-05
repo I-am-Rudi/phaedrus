@@ -10,6 +10,7 @@ import { touch } from '@shared/profile/model';
 import type { ProfileSummary, RuleSetSummary, Snapshot } from '@shared/api';
 import { parseRuleSet, serializeRuleSet, type RuleSet } from '@shared/rules';
 import type { Settings, TasteProfile } from '@shared/types';
+import { AI_TELLS_ID, aiTellsRuleSet } from '@shared/defaults/aiTells';
 
 const MAX_SNAPSHOTS = 50;
 const MAX_RECENT = 12;
@@ -35,6 +36,9 @@ export function defaultSettings(userData: string): Settings {
     styleDebounceMs: 2500,
     grammarDebounceMs: 700,
     reopenLastFile: true,
+    alwaysOnRules: [],
+    alwaysOnProfiles: [],
+    seededDefaults: [],
   };
 }
 
@@ -273,6 +277,21 @@ export class Store {
     const saved = touch({ ...set, id });
     await atomicWrite(file, serializeRuleSet(saved));
     return saved;
+  }
+
+  /**
+   * Put the built-in rule sets into the rules folder on first start and switch
+   * them on. Runs once per set: one the user deleted or turned off stays so.
+   */
+  async seedDefaults(): Promise<void> {
+    const s = await this.getSettings();
+    const seeded = s.seededDefaults ?? [];
+    if (seeded.includes(AI_TELLS_ID)) return;
+    if (!existsSync(join(await this.rulesDir(), `${AI_TELLS_ID}.md`))) await this.saveRuleSet(aiTellsRuleSet(), 'built in');
+    await this.setSettings({
+      seededDefaults: [...seeded, AI_TELLS_ID],
+      alwaysOnRules: [...new Set([...(s.alwaysOnRules ?? []), AI_TELLS_ID])],
+    });
   }
 
   async removeRuleSet(id: string): Promise<void> {

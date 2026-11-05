@@ -51,7 +51,8 @@ export interface FeedbackEntry {
 export interface CheckerDeps {
   backend: Backend;
   settings(): Settings;
-  profiles(): { general: TasteProfile | null; project: TasteProfile | null };
+  /** The chosen profiles, plus those switched to always on for this language. */
+  profiles(): { general: TasteProfile | null; project: TasteProfile | null; always: TasteProfile[] };
   /** Active rule sets. */
   ruleSets(): RuleSet[];
   onRuleEvent(setId: string, ev: RuleEvent): void;
@@ -254,8 +255,8 @@ export class Checker {
 
   private async runStyle() {
     const gen = ++this.styleGen;
-    const { general, project } = this.deps.profiles();
-    if (!general && !project && !this.deps.ruleSets().length) return;
+    const { general, project, always } = this.deps.profiles();
+    if (!general && !project && !always.length && !this.deps.ruleSets().length) return;
     const docType = this.deps.docType();
     const bs = blocks(this.editor.state.doc);
     const items = getIssues(this.editor.state);
@@ -278,7 +279,7 @@ export class Checker {
       const title = sectionTitle(db);
       if (title) section = title;
       if (b.type === 'heading' || proseOf(b.text).trim().length < MIN_STYLE_CHARS || busyBlocks.has(b.index)) continue;
-      const moves = effectiveMoves(general, project, { docType, section });
+      const moves = effectiveMoves(general, project, { docType, section }, always);
       const rules = activeRules(ruleSets, { docType, section });
       if (!moves.length && !rules.length) continue;
       const movesKey = moves.map((m) => `${m.id}:${m.title}:${m.description}:${m.notes.length}`).join('|');
@@ -304,7 +305,7 @@ export class Checker {
     this.stylePhase = 'busy';
     this.emitProgress();
 
-    const metrics = general?.metrics ?? project?.metrics;
+    const metrics = general?.metrics ?? project?.metrics ?? always[0]?.metrics;
     const concurrency = this.deps.settings().provider.endsWith('-cli') ? 3 : 4;
     const worker = async () => {
       for (;;) {
@@ -510,8 +511,8 @@ export class Checker {
   }
 
   private async profileEvent(ev: Parameters<Backend['profiles']['applyEvent']>[1]) {
-    const { general, project } = this.deps.profiles();
-    const owner = ownerOf(ev.moveId, general, project);
+    const { general, project, always } = this.deps.profiles();
+    const owner = ownerOf(ev.moveId, general, project, always);
     if (!owner) return;
     try {
       this.deps.onProfile(await this.deps.backend.profiles.applyEvent(owner.id, ev));

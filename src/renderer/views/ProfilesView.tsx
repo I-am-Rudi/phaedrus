@@ -5,6 +5,7 @@ import type { ProfileSummary } from '@shared/api';
 import type { ExcerptPolicy } from '@shared/profile/exchange';
 import { newMove, newProfile } from '@shared/profile/model';
 import type { Example, HintLevel, StyleMove, TasteProfile } from '@shared/types';
+import { AlwaysOnSwitch } from '../AlwaysOn';
 import { errorText, plural, useApp, useUnsavedGuard } from '../state';
 
 const HINT_LABELS: Record<HintLevel, string> = {
@@ -106,6 +107,7 @@ export function ProfilesView() {
                 <div className="name">{s.name}</div>
                 <div className="row small muted">
                   <span className="tag">{s.kind}</span>
+                  {app.isAlwaysOn('profiles', s.id) && <span className="tag on">always on</span>}
                   {plural(s.moves, 'move')}
                   {(app.activeGeneralId === s.id || app.settings.activeProjectProfile === s.id) && <span className="tag on">active</span>}
                 </div>
@@ -169,7 +171,8 @@ function ProfileEditor({ draft, setDraft, dirty, onSave, onRevert, onDeleted, on
     <div className="pane-inner">
       <div className="row">
         <h1 className="grow">{draft.name || 'Untitled'}</h1>
-        {!active && <button className="btn" onClick={activate}>Use for writing</button>}
+        <AlwaysOnSwitch kind="profiles" id={draft.id} />
+        {!active && !app.isAlwaysOn('profiles', draft.id) && <button className="btn" onClick={activate}>Use for writing</button>}
         <button className="btn" disabled={!dirty} onClick={onRevert}>Revert</button>
         <button className="btn primary" disabled={!dirty} onClick={onSave}>Save</button>
       </div>
@@ -187,6 +190,9 @@ function ProfileEditor({ draft, setDraft, dirty, onSave, onRevert, onDeleted, on
           {draft.kind === 'project' ? 'Document language' : 'Language this profile applies to'}
           <select value={draft.language ?? ''} onChange={(e) => set({ language: e.target.value || undefined })}>
             <option value="">{draft.kind === 'project' ? `Default (${languageLabel(app.settings.grammar.language)})` : 'Any language'}</option>
+            {draft.language && !LANGUAGES.some(([c]) => c === draft.language) && (
+              <option value={draft.language}>{baseLabel(baseLanguage(draft.language))} (all varieties)</option>
+            )}
             {LANGUAGES.filter(([c]) => c !== 'auto').map(([code, label]) => <option key={code} value={code}>{label}</option>)}
           </select>
         </label>

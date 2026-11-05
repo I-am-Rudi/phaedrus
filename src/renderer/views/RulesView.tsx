@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { baseLabel, baseLanguage, LANGUAGES } from '@shared/language';
 import { mergeRules, newRule, newRuleSet, type RuleSet, type WritingRule } from '@shared/rules';
 import type { SourceDoc } from '@shared/types';
+import { AlwaysOnSwitch } from '../AlwaysOn';
 import { errorText, plural, useApp, useUnsavedGuard } from '../state';
 
 export function RulesView() {
@@ -97,7 +98,11 @@ export function RulesView() {
                 <div className="name">{r.name}</div>
                 <div className="row small muted">
                   {plural(r.rules, 'rule')}
-                  {app.activeRuleIds.includes(r.id) && <span className="tag on">on for this project</span>}
+                  {app.isAlwaysOn('rules', r.id) ? (
+                    <span className="tag on">always on</span>
+                  ) : (
+                    app.activeRuleIds.includes(r.id) && <span className="tag on">on for this project</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -112,8 +117,10 @@ export function RulesView() {
           <div className="pane-inner">
             <div className="row">
               <h1 className="grow">{draft.name || 'Untitled'}</h1>
+              <AlwaysOnSwitch kind="rules" id={draft.id} />
               <button
                 className="btn"
+                hidden={app.isAlwaysOn('rules', draft.id)}
                 onClick={() => {
                   const on = app.activeRuleIds.includes(draft.id);
                   void app.setActiveRules(on ? app.activeRuleIds.filter((x) => x !== draft.id) : [...app.activeRuleIds, draft.id]);
@@ -125,8 +132,10 @@ export function RulesView() {
               <button className="btn primary" disabled={!dirty} onClick={() => void save()}>Save</button>
             </div>
             <p className="small muted" style={{ margin: 0 }}>
-              Rules are requirements: every clear violation is flagged, in a separate colour from style. They are checked in the same request as style, and active per project
-              {app.project ? ` (now: ${app.project.name})` : ' (now: no project profile)'}.
+              Rules are requirements: every clear violation is flagged, in a separate colour from style. They are checked in the same request as style.{' '}
+              {app.isAlwaysOn('rules', draft.id)
+                ? 'This set is always on: it is checked in every document in its language.'
+                : `It is used per project${app.project ? ` (now: ${app.project.name})` : ' (now: no project profile)'}, or everywhere when switched to always on.`}
             </p>
             <div className="grid3">
               <label className="field">Name<input type="text" value={draft.name} onChange={(e) => set({ name: e.target.value })} /></label>
@@ -134,6 +143,9 @@ export function RulesView() {
                 Language
                 <select value={draft.language ?? ''} onChange={(e) => set({ language: e.target.value || undefined })}>
                   <option value="">Any language</option>
+                  {draft.language && !LANGUAGES.some(([c]) => c === draft.language) && (
+                    <option value={draft.language}>{baseLabel(baseLanguage(draft.language))} (all varieties)</option>
+                  )}
                   {LANGUAGES.filter(([c]) => c !== 'auto').map(([c, l]) => <option key={c} value={c}>{l}</option>)}
                 </select>
               </label>
