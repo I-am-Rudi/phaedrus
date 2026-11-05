@@ -58,7 +58,12 @@ Sources may be scientific texts converted from LaTeX: inline math stays as $...$
 You answer with JSON only.`;
 
 export function extractionPrompt(sources: SourceDoc[], metrics: StyleMetrics): string {
-  const prose = sources.map((s) => (hasLatex(s.text) ? { ...s, text: maskLatex(s.text, 'prose').text } : s));
+  const prose = sources.map((s) => {
+    if (!hasLatex(s.text)) return s;
+    // In LaTeX only blank lines end paragraphs; join the source lines in between.
+    const text = maskLatex(s.text, 'prose').text.split(/\n[ \t]*\n/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean).join('\n\n');
+    return { ...s, text };
+  });
   const blocks = sampleSources(prose)
     .map((s, i) => `<source index="${i + 1}" title="${esc(s.name)}"${s.author ? ` author="${esc(s.author)}"` : ''}>\n${s.text}\n</source>`)
     .join('\n\n');

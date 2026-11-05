@@ -313,3 +313,9 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .progress { display: flex; flex-direction: column; gap: 4px; }
 .progress .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .progress .bar > i { display: block; height: 100%; background: var(--accent); }
+
+/* LaTeX sectioning lines shown like headings */
+.page .ProseMirror > p.latex-heading { font-weight: 600; margin-top: 1.2em; }
+.page .ProseMirror > p.latex-chapter, .page .ProseMirror > p.latex-part { font-size: 1.4em; }
+.page .ProseMirror > p.latex-section { font-size: 1.22em; }
+.page .ProseMirror > p.latex-subsection { font-size: 1.08em; }

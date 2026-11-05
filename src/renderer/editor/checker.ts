@@ -9,7 +9,7 @@
 
 import type { Editor } from '@tiptap/core';
 import type { Backend } from '@shared/api';
-import { sectionTitle, type DocBlock } from '@shared/document';
+import { sectionTitle, softWrap, type DocBlock } from '@shared/document';
 import { effectiveMoves, newMove, ownerOf } from '@shared/profile/model';
 import { activeRules, type RuleEvent, type RuleSet } from '@shared/rules';
 import { proseOf } from '@shared/latex';
@@ -208,7 +208,8 @@ export class Checker {
         const key = keyOf(b.text);
         let issues = this.grammarCache.get(key);
         if (!issues) {
-          issues = b.text.trim() ? await this.deps.backend.grammar.check(b.text, lang) : [];
+          // Line breaks inside a paragraph are formatting; the engine sees one line (same offsets).
+          issues = b.text.trim() ? await this.deps.backend.grammar.check(softWrap(b.text), lang) : [];
           this.grammarCache.set(key, issues);
         }
         if (gen !== this.grammarGen) return;
@@ -241,7 +242,8 @@ export class Checker {
       const from = b.posAt(issue.from);
       const to = b.posAt(issue.to - 1) + 1;
       if (from >= to) continue;
-      items.push({ id, category: issue.category, from, to, text: issue.text });
+      // Compare against the real text later (it may contain line breaks the engine saw as spaces).
+      items.push({ id, category: issue.category, from, to, text: text.slice(issue.from, issue.to) });
       this.entries.set(id, { id, kind: 'grammar', category: issue.category, issue });
     }
     this.appliedGrammar.set(b.index, key);
@@ -320,11 +322,11 @@ export class Checker {
           const all = blocks(this.editor.state.doc);
           const first = batch.reduce((m, j) => (j.b.index < m.b.index ? j : m), batch[0]!);
           const last = batch.reduce((m, j) => (j.b.index > m.b.index ? j : m), batch[0]!);
-          const near = (i: number) => (all[i] && all[i]!.type === 'paragraph' ? all[i]!.text : undefined);
+          const near = (i: number) => (all[i] && all[i]!.type === 'paragraph' ? softWrap(all[i]!.text) : undefined);
           const started = performance.now();
           try {
             results = await this.deps.backend.coach.checkStyleBatch({
-              paragraphs: batch.map((j) => ({ id: j.key, text: j.b.text, section: j.section })),
+              paragraphs: batch.map((j) => ({ id: j.key, text: softWrap(j.b.text), section: j.section })),
               before: near(first.b.index - 1),
               after: near(last.b.index + 1),
               moves: batch[0]!.moves,

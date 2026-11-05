@@ -27,7 +27,7 @@ describe('maskLatex', () => {
     expect(mask('as shown in Eq.~\\eqref{eq:main} and Fig.~\\ref{f1}')).toBe('as shown in Eq. 1 and Fig. 1');
     expect(mask('as \\citet{wald94} showed')).toBe('as Smith showed');
     expect(mask('known results \\cite{a,b} hold')).toBe('known results hold');
-    expect(mask('known results~\\cite[p.~3]{a}.')).toBe('known results .');
+    expect(mask('known results~\\cite[p.~3]{a}.')).toBe('known results.');
     expect(mask('text % a comment\nmore')).toBe('text \nmore');
     expect(mask('label here\\label{sec:x} ok')).toBe('label here ok');
   });
@@ -121,4 +121,9 @@ describe('project language', () => {
     expect(parseProfile(serializeProfile(p)).language).toBe('de-DE');
     expect(parseProfile(serializeProfile(newProfile('x'))).language).toBeUndefined();
   });
+});
+
+it('a removed citation does not leave a space before punctuation', () => {
+  const m = maskLatex('as shown in \\cite{Smith2020}. Next, see~\\cite{a}, too');
+  expect(m.text).toBe('as shown in. Next, see, too');
 });

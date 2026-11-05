@@ -1,25 +1,30 @@
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { DOC_TYPES, parseDocument, serializeDocument, type DocBlock } from '@shared/document';
+import { DOC_TYPES, parseDocumentFull, serializeDocument, type DocBlock } from '@shared/document';
 import { baseLabel, baseLanguage, harperDialectFor, languageLabel, languageMatches } from '@shared/language';
 import { hintFor } from '@shared/profile/feedback';
 import type { Category, Mode } from '@shared/types';
 import { Checker, type Entry, type FeedbackEntry, type StyleEntry } from '../editor/checker';
-import { blocks, IssuesExtension } from '../editor/issues';
+import { BlockSeparators, blocks, IssuesExtension, LatexHeadings } from '../editor/issues';
 import { cycleView } from '../vim/app';
 import { Vim, type IssueAction } from '../vim/editorVim';
 import { SAMPLE_DOCUMENT } from '../sample';
 import { errorText, useApp } from '../state';
 
-function toContent(text: string) {
-  return {
+/** Whitespace around the blocks of the open file, kept so it saves back unchanged. */
+type Frame = { leading: string; trailing: string };
+
+function toContent(text: string, name = '') {
+  const parsed = parseDocumentFull(text, name);
+  const doc = {
     type: 'doc',
-    content: parseDocument(text).map((b) =>
+    content: parsed.blocks.map((b) =>
       b.type === 'heading'
-        ? { type: 'heading', attrs: { level: Math.min(b.level, 6) }, content: b.text ? [{ type: 'text', text: b.text }] : [] }
+        ? { type: 'heading', attrs: { level: Math.min(b.level, 6), sep: b.sep ?? null }, content: b.text ? [{ type: 'text', text: b.text }] : [] }
         : {
             type: 'paragraph',
+            attrs: { sep: b.sep ?? null },
             content: b.text.split('\n').flatMap((line, i) => [
               ...(i > 0 ? [{ type: 'hardBreak' }] : []),
               ...(line ? [{ type: 'text', text: line }] : []),
@@ -27,6 +32,7 @@ function toContent(text: string) {
           },
     ),
   };
+  return { doc, frame: { leading: parsed.leading, trailing: parsed.trailing || '\n' } as Frame, latex: parsed.latex };
 }
 
 const CATEGORY_LABEL: Record<Category, string> = { spelling: 'Spelling', grammar: 'Grammar', style: 'Style', rules: 'Rules' };
@@ -48,6 +54,7 @@ export function WriteView() {
   live.current = { settings, general, project, docType, language: app.language, profileChanged: app.profileChanged };
 
   const checkerRef = useRef<Checker | null>(null);
+  const frameRef = useRef<Frame>({ leading: '', trailing: '\n' });
   const asideRef = useRef<HTMLElement>(null);
   const orderedRef = useRef<Entry[]>([]);
   const selectedRef = useRef<string | null>(null);
@@ -81,6 +88,8 @@ export function WriteView() {
         link: false, underline: false,
       }),
       vim.extension(),
+      BlockSeparators,
+      LatexHeadings,
       IssuesExtension((id) => {
         setSelected(id);
         setPopover(id);
@@ -88,7 +97,7 @@ export function WriteView() {
         if (id) document.getElementById(`card-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }),
     ],
-    content: toContent(mock ? SAMPLE_DOCUMENT : ''),
+    content: toContent(mock ? SAMPLE_DOCUMENT : '').doc,
     onUpdate: () => setDirty(true),
   });
   editorRef.current = editor;
@@ -373,10 +382,12 @@ export function WriteView() {
     try {
       const d = await backend.files.openDocument();
       if (!d || !editor) return;
-      editor.commands.setContent(toContent(d.text), { emitUpdate: false });
+      const loaded = toContent(d.text, d.name);
+      frameRef.current = loaded.frame;
+      editor.commands.setContent(loaded.doc, { emitUpdate: false });
       setDoc({ path: d.path, name: d.name });
       setDirty(false);
-      if (/\.tex$/.test(d.name)) setDocType('paper');
+      if (loaded.latex) setDocType('paper');
       checker?.reset();
     } catch (e) {
       app.notify(errorText(e));
@@ -386,7 +397,10 @@ export function WriteView() {
   async function save() {
     if (!editor) return;
     const text = serializeDocument(
-      blocks(editor.state.doc).map((b): DocBlock => (b.type === 'heading' ? { type: 'heading', level: b.level, text: b.text } : { type: 'paragraph', text: b.text })),
+      blocks(editor.state.doc).map((b): DocBlock =>
+        b.type === 'heading' ? { type: 'heading', level: b.level, text: b.text, sep: b.sep } : { type: 'paragraph', text: b.text, sep: b.sep },
+      ),
+      frameRef.current,
     );
     try {
       const path = await backend.files.saveDocument(doc.path, text);
