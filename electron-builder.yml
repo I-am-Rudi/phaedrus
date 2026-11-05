@@ -1,5 +1,6 @@
 appId: dev.gorgias.app
 productName: Gorgias
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
   output: dist
 files:
@@ -7,11 +8,19 @@ files:
   - package.json
 asarUnpack:
   - node_modules/harper.js/**
+publish:
+  provider: github
+  releaseType: draft
 linux:
   target: [AppImage, deb]
   category: Office
+  maintainer: Rudi Siebert <k.r.siebert@icloud.com>
 mac:
-  target: dmg
+  target: [dmg, zip]
   category: public.app-category.productivity
+  hardenedRuntime: true
 win:
   target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
