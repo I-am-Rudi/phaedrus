@@ -10,6 +10,7 @@ import type { Category, Mode, TasteProfile } from '@shared/types';
 import { Checker, type Entry, type FeedbackEntry, type StyleEntry } from '../editor/checker';
 import { BlockSeparators, blocks, IssuesExtension, LatexHeadings } from '../editor/issues';
 import { PlainTextPaste } from '../editor/paste';
+import { getRevision, RevisionExtension, startRevision, stopRevision, type Revision } from '../editor/revision';
 import { useFit } from '../fit';
 import { cycleView } from '../vim/app';
 import { Vim, type IssueAction } from '../vim/editorVim';
@@ -116,11 +117,14 @@ export function WriteView() {
       BlockSeparators,
       LatexHeadings,
       PlainTextPaste(() => docNameRef.current),
+      RevisionExtension,
       IssuesExtension((id) => {
         setSelected(id);
+        // Teacher mode: clicking a style or rule hint starts revising its paragraph.
+        if (id && revisionRef.current.begin(id)) return void revealRef.current(id);
         setPopover(id);
         checkerRef.current?.select(id);
-        if (id) document.getElementById(`card-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (id) revealRef.current(id);
       }),
     ],
     content: toContent(mock ? SAMPLE_DOCUMENT : '').doc,
@@ -162,6 +166,7 @@ export function WriteView() {
         void liveApp.current.backend.rules.applyEvent(setId, ev).then((s) => liveApp.current.ruleSetChanged(s));
       },
       docType: () => live.current.docType,
+      paused: () => (editorRef.current ? getRevision(editorRef.current.state) : null),
       language: () => live.current.language,
       onProfile: (p) => live.current.profileChanged(p),
     });
@@ -171,6 +176,71 @@ export function WriteView() {
     return c;
   }, [editor, backend]);
   useEffect(() => () => checker?.destroy(), [checker]);
+
+  // ---------------------------------------------------------- revising
+  const [revision, setRevision] = useState<Revision | null>(null);
+  useEffect(() => {
+    if (!editor) return;
+    const update = () => setRevision(getRevision(editor.state));
+    editor.on('transaction', update);
+    return () => void editor.off('transaction', update);
+  }, [editor]);
+
+  /** Start revising the paragraph of a style or rule hint (teacher mode). */
+  function beginRevision(id: string): boolean {
+    if (!editor || !checker || settings.mode !== 'teacher') return false;
+    const e = checker.entries.get(id);
+    const r = checker.range(id);
+    if (e?.kind !== 'style' || !r) return false;
+    const cur = getRevision(editor.state);
+    if (cur && r.from >= cur.from && r.to <= cur.to) return true; // already revising it
+    if (cur) {
+      app.notify(`Finish this paragraph first: Done (${MAC ? '⌘ Enter' : 'Ctrl+Enter'}) or Discard changes.`);
+      return true;
+    }
+    const tr = startRevision(editor.state, r.from);
+    if (!tr) return false;
+    editor.view.dispatch(tr);
+    setPopover(null);
+    selectIssue(id, false);
+    editor.commands.focus();
+    return true;
+  }
+
+  /** Done: ask for feedback on what changed. Discard: put the paragraph back. */
+  function endRevision(discard = false) {
+    if (!editor) return;
+    const r = getRevision(editor.state);
+    if (!r) return;
+    const n = discard ? 0 : (checker?.finishRevision(r.from, r.to) ?? 0);
+    const tr = stopRevision(editor.state, discard);
+    if (tr) editor.view.dispatch(tr);
+    if (discard) {
+      const after = tr ? tr.mapping.map(r.from, -1) : r.from;
+      checker?.restoreRange(after, after + r.original.size);
+    }
+    if (!discard && n === 0) app.notify('Nothing changed in the flagged passages, so there is nothing to give feedback on.');
+    editor.commands.focus();
+  }
+  const revealRef = useRef(revealCard);
+  revealRef.current = revealCard;
+  // Whenever a suggestion opens in the text (click, vim keys, Tab), its card comes into view.
+  useEffect(() => {
+    if (!popover) return;
+    setSelected(popover);
+    requestAnimationFrame(() => revealCard(popover));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [popover]);
+  const revisionRef = useRef({ begin: beginRevision, end: endRevision });
+  revisionRef.current = { begin: beginRevision, end: endRevision };
+
+  // Leaving teacher mode ends a revision and keeps the edits.
+  useEffect(() => {
+    if (settings.mode !== 'teacher' && editor && getRevision(editor.state)) {
+      const tr = stopRevision(editor.state);
+      if (tr) editor.view.dispatch(tr);
+    }
+  }, [settings.mode, editor]);
 
   // Re-render on checker changes.
   const version = useSyncExternalStore(
@@ -206,8 +276,41 @@ export function WriteView() {
     setSelected(id);
     checker?.select(id);
     const r = checker?.range(id);
-    if (moveCursor && r && editor) editor.chain().setTextSelection(r.from).scrollIntoView().run();
-    document.getElementById(`card-${id}`)?.scrollIntoView({ block: 'nearest' });
+    if (moveCursor && r && editor) {
+      editor.commands.setTextSelection(r.from);
+      revealInText(id);
+    }
+    revealCard(id);
+  }
+
+  // Text and panel follow each other: a card scrolls its passage into the
+  // middle of the page, a passage scrolls its card into the middle of the panel.
+  function revealInText(id: string) {
+    const r = checker?.range(id);
+    if (!r || !editor) return;
+    const scroller = scrollParent(editor.view.dom) ?? (editor.view.dom.closest('.page-scroll') as HTMLElement | null);
+    try {
+      const at = editor.view.coordsAtPos(r.from);
+      if (scroller) {
+        const box = scroller.getBoundingClientRect();
+        const visible = at.top >= box.top + 40 && at.bottom <= box.bottom - 80;
+        if (!visible) scroller.scrollTo({ top: scroller.scrollTop + at.top - box.top - box.height / 3, behavior: 'smooth' });
+      }
+    } catch {
+      /* position not rendered */
+    }
+    flash(editor.view.dom.querySelectorAll(`[data-issue-id="${CSS.escape(id)}"]`));
+  }
+  function revealCard(id: string) {
+    const card = document.getElementById(`card-${id}`);
+    if (!card) return;
+    const list = card.closest('.cards');
+    if (list) {
+      const a = card.getBoundingClientRect();
+      const b = list.getBoundingClientRect();
+      if (a.top < b.top || a.bottom > b.bottom) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    flash([card]);
   }
 
   function issueUnderCursor(): string | null {
@@ -250,6 +353,7 @@ export function WriteView() {
     if (!e) return;
     switch (action) {
       case 'open':
+        if (beginRevision(target)) return;
         selectIssue(target, false);
         return setPopover(target);
       case 'pick':
@@ -271,6 +375,7 @@ export function WriteView() {
         if (e.kind !== 'style') return checker.dismiss(target);
         return app.openPrompt('not for me, why? ', (reason) => void checker.reject(target, reason), () => editor.commands.focus());
       case 'check':
+        if (editor && getRevision(editor.state)) return endRevision();
         if (e.kind === 'style') void checker.requestFeedback(target);
         return;
       case 'addword':
@@ -297,7 +402,9 @@ export function WriteView() {
       case 'Enter':
       case '<CR>':
       case 'a':
-        act(e.kind === 'style' && settings.mode === 'teacher' ? 'check' : 'accept', id);
+        if (e.kind === 'style' && settings.mode === 'teacher') {
+          if (!beginRevision(id)) act('check', id);
+        } else act('accept', id);
         return true;
       case 'x':
         act('dismiss', id);
@@ -403,6 +510,8 @@ export function WriteView() {
         e: (arg) => void open(arg.trim() || undefined),
         'e!': () => void reloadFromDisk(),
         recent: () => void openRecent(),
+        done: () => endRevision(),
+        discard: () => endRevision(true),
         check: () => checker?.invalidate('all'),
         issue: (arg) => {
           const action = arg.trim() as IssueAction;
@@ -443,6 +552,8 @@ export function WriteView() {
     const scroller = scrollParent(editor.view.dom);
     const keep = how === 'reload' ? { pos: editor.state.selection.from, top: scroller?.scrollTop ?? 0 } : null;
     frameRef.current = loaded.frame;
+    const rev = stopRevision(editor.state);
+    if (rev) editor.view.dispatch(rev);
     // Drop the old document's suggestions first: mapped onto the new text they
     // would look edited, and teacher mode would ask for feedback on each.
     checkerRef.current?.reset();
@@ -630,6 +741,10 @@ export function WriteView() {
     const onKey = (ev: KeyboardEvent) => {
       if (!(ev.metaKey || ev.ctrlKey) || ev.altKey) return;
       const k = ev.key.toLowerCase();
+      if (ev.key === 'Enter' && editor && getRevision(editor.state)) {
+        ev.preventDefault();
+        return endRevision();
+      }
       // Through the commands, so Ctrl/Cmd+S saves whatever the current view edits.
       if (k === 's') {
         ev.preventDefault();
@@ -727,7 +842,8 @@ export function WriteView() {
         )}
       <div className="write">
         <div className="page-scroll" onScroll={() => popover && setPopoverTick((t) => t + 1)}>
-          <div className={`page ${settings.mode}`}>
+          {revision && checker && <RevisionBar revision={revision} checker={checker} onDone={() => endRevision()} onDiscard={() => endRevision(true)} vim={settings.vim} />}
+          <div className={`page ${settings.mode}${revision ? ' revising' : ''}`}>
             <EditorContent editor={editor} />
           </div>
           {popover && checker && editor && checker.entries.has(popover) && (
@@ -784,7 +900,7 @@ export function WriteView() {
               </div>
             )}
             {settings.mode === 'teacher' && (
-              <div className="small muted">Style issues show a hint only. Revise the passage; feedback comes when you leave the paragraph.</div>
+              <div className="small muted">Style issues show a hint only. Click a passage to revise its paragraph; feedback comes when you press Done.</div>
             )}
             {settings.grammar.engine === 'harper' && !harperDialectFor(app.language, settings.grammar.harperDialect) && (
               <div className="small muted">
@@ -815,7 +931,11 @@ export function WriteView() {
                 checker={checker!}
                 onSelect={() => {
                   setSelected(e.id);
-                  checker?.select(e.id, true);
+                  checker?.select(e.id);
+                  const r = checker?.range(e.id);
+                  // Put the cursor on the passage (inside a revision only if it is in that paragraph).
+                  if (r && editor) editor.commands.setTextSelection({ from: r.from, to: r.to });
+                  revealInText(e.id);
                 }}
                 onAddWord={(w) => void app.updateSettings({ dictionary: [...settings.dictionary, w] })}
               />
@@ -881,7 +1001,7 @@ function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord, inlin
       ) : (
         <>
           <div className="hint">{hint}</div>
-          {e.status === 'open' && <div className="small muted">Revise the underlined passage in the editor.</div>}
+          {e.status === 'open' && <div className="small muted">Click the underlined passage to revise its paragraph.</div>}
           {rejecting ? (
             <RejectBox reason={reason} setReason={setReason} onCancel={() => setRejecting(false)} onConfirm={() => void checker.reject(e.id, reason)} />
           ) : (
@@ -1018,4 +1138,48 @@ function RulesPicker() {
       </div>
     </details>
   );
+}
+
+const MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
+
+/** Shown while a paragraph is being revised in teacher mode: its hints and how to finish. */
+function RevisionBar({ revision, checker, onDone, onDiscard, vim }: { revision: Revision; checker: Checker; onDone(): void; onDiscard(): void; vim: boolean }) {
+  const hints = getIssuesIn(checker, revision);
+  const edited = hints.some((e) => e.status === 'revising');
+  return (
+    <div className="revision-bar">
+      <div className="revision-head">
+        <span className="revision-title">Revising this paragraph</span>
+        <span className="small muted">{edited ? 'Changed. Feedback comes when you are done.' : 'Edit freely; nothing is checked until you are done.'}</span>
+        <span className="grow" />
+        <button className="btn ghost small" onClick={onDiscard} title={vim ? ':discard' : undefined}>Discard changes</button>
+        <button className="btn primary small" onClick={onDone} title={vim ? ':done, SPC s c' : undefined}>
+          Done <span className="kbd">{MAC ? '⌘ Enter' : 'Ctrl+Enter'}</span>
+        </button>
+      </div>
+      {hints.map((e) => (
+        <div key={e.id} className={`revision-hint ${e.category}`}>
+          <span className="revision-move">{e.move.title}</span> {hintFor(e.move.hintLevel, e.s.hints, e.move.title)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function getIssuesIn(checker: Checker, r: { from: number; to: number }): StyleEntry[] {
+  return [...checker.entries.values()].filter((e): e is StyleEntry => {
+    if (e.kind !== 'style') return false;
+    const range = checker.range(e.id);
+    return !!range && range.from >= r.from && range.to <= r.to;
+  });
+}
+
+/** Briefly mark elements so the eye finds them after a scroll. */
+function flash(els: Iterable<Element>) {
+  for (const el of els) {
+    el.classList.remove('flash');
+    void (el as HTMLElement).offsetWidth;
+    el.classList.add('flash');
+    window.setTimeout(() => el.classList.remove('flash'), 900);
+  }
 }
