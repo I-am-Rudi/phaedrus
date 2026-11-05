@@ -264,7 +264,7 @@ function MoveEditor({ m, open, toggle, set, remove }: { m: StyleMove; open: bool
   const scopeLabel = [...m.scope.docTypes, ...m.scope.sections].join(', ');
   return (
     <div className={`move${m.enabled ? '' : ' disabled'}`}>
-      <div className="move-head" onClick={toggle}>
+      <div className="move-head" onClick={toggle} tabIndex={0} data-activate>
         <input type="checkbox" checked={m.enabled} onClick={(e) => e.stopPropagation()} onChange={(e) => set({ enabled: e.target.checked })} title="Enabled" />
         <span className="title">{m.title}</span>
         {m.locked && <span className="tag on">locked</span>}

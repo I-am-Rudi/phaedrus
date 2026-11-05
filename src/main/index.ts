@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell } from 'electron';
 import { channel, type Backend } from '@shared/api';
 import { checkStyle, editFeedback, extractProfile, findBlendConflicts } from '@shared/coach';
 import { diffProfiles } from '@shared/profile/diff';
@@ -128,6 +128,35 @@ for (const [group, methods] of Object.entries(backend)) {
   }
 }
 
+/**
+ * The default Electron menu binds Ctrl+W (close window) and Ctrl+R (reload) on
+ * Linux and Windows, which would swallow vim's Ctrl-w and Ctrl-r. This menu keeps
+ * the usual entries but puts reload on F5 and leaves Ctrl+W and Ctrl+R to the page.
+ */
+function setMenu() {
+  const mac = process.platform === 'darwin';
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(mac ? [{ role: 'appMenu' as const }] : []),
+    { label: 'File', submenu: [mac ? { role: 'close' } : { role: 'quit', accelerator: 'Ctrl+Q' }] },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload', accelerator: 'F5' },
+        { role: 'toggleDevTools', accelerator: mac ? 'Alt+Cmd+I' : 'Ctrl+Shift+I' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    { label: 'Window', submenu: [{ role: 'minimize' }, ...(mac ? [{ role: 'zoom' as const }] : [])] },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function createWindow() {
   const w = new BrowserWindow({
     width: 1360,
@@ -147,6 +176,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  setMenu();
   createWindow();
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());
 });

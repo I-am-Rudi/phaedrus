@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Backend, ProfileSummary } from '@shared/api';
 import { baseLanguage, languageMatches } from '@shared/language';
 import type { Settings, TasteProfile } from '@shared/types';
@@ -26,6 +26,15 @@ interface AppState {
   profileChanged(p: TasteProfile): void;
   view: ViewId;
   go(view: ViewId, arg?: string): void;
+  /** Vim command line: open it with a prefix (":" or "/"); onSubmit gets the typed text. */
+  prompt: { prefix: string; onSubmit(v: string): void; onClose?(): void } | null;
+  openPrompt(prefix: string, onSubmit: (v: string) => void, onClose?: () => void): void;
+  closePrompt(): void;
+  /** Commands views add for ":"; each gets the argument string. */
+  registerCommands(cmds: Record<string, (arg: string) => void>): () => void;
+  runCommand(line: string): void;
+  helpOpen: boolean;
+  setHelpOpen(open: boolean): void;
   viewArg: string | undefined;
   toast: string | null;
   notify(msg: string): void;
@@ -47,6 +56,9 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
   const [view, setView] = useState<ViewId>('write');
   const [viewArg, setViewArg] = useState<string | undefined>();
   const [toast, setToast] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<AppState['prompt']>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const commandsRef = useRef(new Map<string, (arg: string) => void>());
 
   const load = useCallback(
     async (id: string | null) => (id ? backend.profiles.get(id).catch(() => null) : null),
@@ -109,13 +121,62 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
     window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 4000);
   }, []);
 
+  const go = useCallback((v: ViewId, arg?: string) => {
+    setView(v);
+    setViewArg(arg);
+  }, []);
+
+  const registerCommands = useCallback((cmds: Record<string, (arg: string) => void>) => {
+    for (const [k, f] of Object.entries(cmds)) commandsRef.current.set(k, f);
+    return () => {
+      for (const k of Object.keys(cmds)) commandsRef.current.delete(k);
+    };
+  }, []);
+
+  const runCommand = useCallback(
+    (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const [name = '', ...rest] = trimmed.split(/\s+/);
+      const arg = rest.join(' ');
+      const views: Record<string, ViewId> = { write: 'write', profiles: 'profiles', extract: 'extract', blend: 'blend', settings: 'settings' };
+      const own = commandsRef.current.get(name);
+      if (own) return own(arg);
+      if (views[name]) return go(views[name]!);
+      if (name === 'h' || name === 'help') return setHelpOpen(true);
+      if (name === 'teacher' || name === 'assistant') return void updateSettings({ mode: name });
+      if (name === 'mode' && (arg === 'teacher' || arg === 'assistant')) return void updateSettings({ mode: arg });
+      if (name === 'set') {
+        const [k, v = ''] = arg.split('=');
+        if (k === 'novim') return void updateSettings({ vim: false });
+        if (k === 'mode' && (v === 'teacher' || v === 'assistant')) return void updateSettings({ mode: v });
+        const own2 = commandsRef.current.get(k ?? '');
+        if (own2) return own2(v);
+      }
+      if (name === 'profile' || name === 'project') {
+        const q = arg.toLowerCase();
+        const kind = name === 'project' ? 'project' : 'general';
+        const hit = summaries.find((s) => s.kind === kind && (s.id === q || s.name.toLowerCase().startsWith(q)));
+        if (!arg) return notify(`Usage: :${name} <name>`);
+        if (!hit) return notify(`No ${kind} profile "${arg}"`);
+        if (kind === 'project') return void updateSettings({ activeProjectProfile: hit.id });
+        return void setActiveGeneral(hit.id, hit.language ?? 'auto');
+      }
+      notify(`Not a command: ${name}. :help lists the commands.`);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [go, updateSettings, summaries, setActiveGeneral],
+  );
+
   const value = useMemo<AppState>(
     () => ({
       backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged,
       language, activeGeneralId, setActiveGeneral, generalMismatch: mismatch,
-      view, viewArg, go: (v, arg) => { setView(v); setViewArg(arg); }, toast, notify,
+      view, viewArg, go, toast, notify,
+      prompt, openPrompt: (prefix, onSubmit, onClose) => setPrompt({ prefix, onSubmit, onClose }), closePrompt: () => setPrompt(null),
+      registerCommands, runCommand, helpOpen, setHelpOpen,
     }),
-    [backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, view, viewArg, toast, notify],
+    [backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useApp, type ViewId } from './state';
+import { CommandLine, HelpOverlay, useGlobalVim } from './vim/app';
 import { BlendView } from './views/BlendView';
 import { ExtractView } from './views/ExtractView';
 import { ProfilesView } from './views/ProfilesView';
@@ -17,6 +18,7 @@ const LABELS: Record<ViewId, string> = { write: 'Write', profiles: 'Profiles', e
 
 export function App() {
   const { view, go, mock, toast } = useApp();
+  useGlobalVim();
   const button = (id: ViewId) => (
     <button key={id} className={view === id ? 'active' : ''} onClick={() => go(id)} title={LABELS[id]}>
       <svg viewBox="0 0 24 24" aria-hidden>{ICONS[id]}</svg>
@@ -41,6 +43,8 @@ export function App() {
         {view === 'extract' && <ExtractView />}
         {view === 'blend' && <BlendView />}
         {view === 'settings' && <SettingsView />}
+        <CommandLine />
+        <HelpOverlay />
         {toast && <div className="notice" style={{ position: 'fixed', bottom: 16, right: 16, zIndex: 10 }}>{toast}</div>}
       </main>
     </div>

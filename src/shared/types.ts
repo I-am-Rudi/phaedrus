@@ -165,6 +165,8 @@ export interface Settings {
   activeProjectProfile: string | null;
   mode: Mode;
   dictionary: string[];
+  /** Vim keybindings in the editor and across the app. */
+  vim: boolean;
   styleDebounceMs: number;
   grammarDebounceMs: number;
 }

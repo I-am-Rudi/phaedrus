@@ -175,6 +175,7 @@ export function createMockBackend(): Backend {
     activeProjectProfile: 'thesis',
     mode: 'assistant',
     dictionary: [],
+    vim: false,
     styleDebounceMs: 1200,
     grammarDebounceMs: 500,
   };

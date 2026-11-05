@@ -134,6 +134,18 @@ export function SettingsView() {
         </div>
 
         <div className="section">
+          <h2>Keys</h2>
+          <label className="inline">
+            <input type="checkbox" checked={s.vim} onChange={(e) => setS({ ...s, vim: e.target.checked })} />
+            Vim keybindings in the editor and across the app
+          </label>
+          <div className="small muted">
+            Modal editing, <span className="kbd">]s</span> <span className="kbd">z=</span> for suggestions, <span className="kbd">gt</span> between views,
+            {' '}<span className="kbd">j</span>/<span className="kbd">k</span> between controls, and a <span className="kbd">:</span> command line. <span className="kbd">:help</span> or <span className="kbd">?</span> lists every key.
+          </div>
+        </div>
+
+        <div className="section">
           <h2>Checking</h2>
           <div className="grid3">
             <label className="field">Style check delay (ms)<input type="number" min={500} step={250} value={s.styleDebounceMs} onChange={(e) => setS({ ...s, styleDebounceMs: Number(e.target.value) })} /></label>

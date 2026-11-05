@@ -61,6 +61,7 @@ gorgias: 1
 id: plain-physics
 name: Plain physics
 kind: general
+language: en-GB
 description: Short declarative claims, a concrete case before the rule.
 sources:
   - title: Lecture notes
@@ -178,6 +179,18 @@ All checks treat LaTeX as markup, not prose. Before spelling and grammar run, ea
 Findings that touch a placeholder or markup are dropped; the rest are placed on the original text. A `$` only opens math under pandoc's rule (no space after the opening `$`, none before the closing one, no digit right after it), so "costs $5 and $10" stays prose. Eq, Fig, Sec, Ref and similar abbreviations are never flagged.
 
 Style checks see the original paragraph and are told to leave math, commands and comments untouched. A suggestion whose rewrite does not keep every equation and reference of the quoted passage verbatim is discarded, and paragraphs that are mostly equations are skipped. Metrics are measured on the prose, and extraction sources keep inline math but show displayed equations as `[equation]`.
+
+## Vim keybindings
+
+Turn them on in Settings > Keys. The editor becomes modal, the rest of the app follows the same habits, and `:help` (or `?`) shows every key.
+
+- **Editing:** normal, insert, visual and visual-line modes with counts; motions `h j k l w b e W B E 0 ^ $ gg G { } f t F T ; , / ? n N`; operators `d c y` with motions, doubled for lines, or with the text objects `iw aw iW aW is as ip ap`; and `x X D C s S r J ~ p P u Ctrl-r i a I A o O Ctrl-d Ctrl-u zz`. `j` and `k` move by wrapped screen lines, which suits prose. Yanks also go to the system clipboard.
+- **Suggestions:** `]s` and `[s` jump between underlines and `z=` opens the one under the cursor; then `1` to `9` picks a replacement. These follow vim's spell-checking keys, as does `zg` (add to the dictionary). Gorgias adds `za` accept, `zd` dismiss, `zr` not for me (asks for a reason) and `zc` check my revision.
+- **Panel:** `Ctrl-w l` focuses the suggestion panel and `Ctrl-w h` (or Esc) returns. In the panel, `j`/`k` move between cards, Enter or `a` accepts (in teacher mode it checks your revision), `x` dismisses, `r` rejects, `c` checks, `1` to `9` pick.
+- **Everywhere:** `gt`/`gT` cycle the views. Outside the editor, `j`/`k`/`gg`/`G` move focus between controls, Enter opens list items, `i` returns to the editor, and Esc leaves a text field.
+- **Commands:** `:w`, `:e`, `:teacher`, `:assistant`, `:write`, `:profiles`, `:extract`, `:blend`, `:settings`, `:profile NAME`, `:project NAME`, `:set doctype=thesis`, `:check` (recheck everything), `:set novim`.
+
+In the desktop app Ctrl+W and Ctrl+R are left to the page, so they reach vim instead of closing or reloading the window; reload is on F5.
 
 ## Documents
 

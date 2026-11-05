@@ -252,3 +252,28 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .source { border: 1px solid var(--line); border-radius: 3px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
 .snapshot { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .notice { border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--surface); font-size: 13px; border-radius: 3px; }
+
+/* ---------- vim ---------- */
+.page .ProseMirror.vim-normal, .page .ProseMirror.vim-visual, .page .ProseMirror.vim-visual-line { caret-color: transparent; }
+.vim-cursor { background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 1px; }
+.ProseMirror:not(.ProseMirror-focused) .vim-cursor { background: none; box-shadow: inset 0 0 0 1px var(--ink-3); }
+.vim-cursor-eol { display: inline-block; width: 0.55em; }
+.vim-mode { font: 500 11px var(--sans); letter-spacing: 0.06em; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; margin-right: 6px; }
+.vim-mode-insert { color: var(--grammar); }
+.vim-mode-visual, .vim-mode-visual-line { color: var(--accent-ink); }
+.side:focus { outline: none; }
+.side:focus .card.selected { border-color: var(--accent); }
+.cmdline {
+  position: fixed; left: 64px; right: 0; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 4px;
+  background: var(--surface); border-top: 1px solid var(--line-strong); padding: 6px 14px; font: 400 14px ui-monospace, monospace;
+}
+.cmdline input { flex: 1; border: 0; background: none; outline: none; font: inherit; padding: 0; }
+.cmdline input:focus { outline: none; border: 0; }
+.cmd-prefix { color: var(--accent-ink); }
+.overlay { position: fixed; inset: 0; background: rgba(20, 24, 27, 0.25); z-index: 30; display: flex; align-items: flex-start; justify-content: center; padding: 48px 16px; overflow: auto; }
+.help { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 3px; padding: 20px 24px; max-width: 760px; width: 100%; display: flex; flex-direction: column; gap: 12px; }
+.help h3 { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); margin: 6px 0 4px; }
+.help table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.help td { padding: 3px 0; vertical-align: top; border-bottom: 1px solid var(--line); }
+.help .kbd-cell { font-family: ui-monospace, monospace; padding-right: 18px; width: 230px; color: var(--ink); }
+[data-activate]:focus-visible, .btn:focus-visible, .seg button:focus-visible, .rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

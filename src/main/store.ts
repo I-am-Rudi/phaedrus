@@ -26,6 +26,7 @@ export function defaultSettings(userData: string): Settings {
     activeProjectProfile: null,
     mode: 'assistant',
     dictionary: [],
+    vim: false,
     styleDebounceMs: 2500,
     grammarDebounceMs: 700,
   };

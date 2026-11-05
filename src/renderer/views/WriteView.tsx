@@ -7,6 +7,8 @@ import { hintFor } from '@shared/profile/feedback';
 import type { Category, Mode } from '@shared/types';
 import { Checker, type Entry, type FeedbackEntry, type StyleEntry } from '../editor/checker';
 import { blocks, IssuesExtension } from '../editor/issues';
+import { cycleView } from '../vim/app';
+import { Vim, type IssueAction } from '../vim/editorVim';
 import { SAMPLE_DOCUMENT } from '../sample';
 import { errorText, useApp } from '../state';
 
@@ -43,6 +45,26 @@ export function WriteView() {
   live.current = { settings, general, project, docType, language: app.language, profileChanged: app.profileChanged };
 
   const checkerRef = useRef<Checker | null>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  const orderedRef = useRef<Entry[]>([]);
+  const selectedRef = useRef<string | null>(null);
+  selectedRef.current = selected;
+  const issueRef = useRef<(action: IssueAction, n?: number) => void>(() => {});
+  const vim = useMemo(
+    () =>
+      new Vim({
+        prompt: (prefix, onSubmit) => app.openPrompt(prefix, onSubmit, () => editorRef.current?.commands.focus()),
+        command: (line) => liveApp.current.runCommand(line),
+        issue: (action, n) => issueRef.current(action, n),
+        panel: () => focusPanel(),
+        view: (dir) => liveApp.current.go(cycleView(liveApp.current.view, dir)),
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const liveApp = useRef(app);
+  liveApp.current = app;
+  const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -50,6 +72,7 @@ export function WriteView() {
         bulletList: false, orderedList: false, listItem: false, listKeymap: false, horizontalRule: false,
         link: false, underline: false,
       }),
+      vim.extension(),
       IssuesExtension((id) => {
         setSelected(id);
         checkerRef.current?.select(id);
@@ -59,6 +82,16 @@ export function WriteView() {
     content: toContent(mock ? SAMPLE_DOCUMENT : ''),
     onUpdate: () => setDirty(true),
   });
+  editorRef.current = editor;
+  useEffect(() => {
+    if (editor) vim.attach(editor);
+    vim.setEnabled(settings.vim);
+  }, [editor, vim, settings.vim]);
+  const vimState = useSyncExternalStore(
+    (fn) => vim.subscribe(fn),
+    () => `${vim.mode}|${vim.pending}`,
+  );
+  const [vimMode, vimPending] = vimState.split('|');
 
   const checker = useMemo(() => {
     if (!editor) return null;
@@ -102,6 +135,155 @@ export function WriteView() {
   const counts = { spelling: 0, grammar: 0, style: 0 } as Record<Category, number>;
   for (const e of ordered) counts[e.category]++;
   const visible = ordered.filter((e) => filters[e.category]);
+  orderedRef.current = visible;
+
+  function selectIssue(id: string, moveCursor: boolean) {
+    setSelected(id);
+    checker?.select(id);
+    const r = checker?.range(id);
+    if (moveCursor && r && editor) editor.chain().setTextSelection(r.from).scrollIntoView().run();
+    document.getElementById(`card-${id}`)?.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** The issue under the cursor, else the selected card. */
+  function currentIssue(): string | null {
+    if (!editor || !checker) return selectedRef.current;
+    const head = editor.state.selection.head;
+    const hit = orderedRef.current.find((e) => {
+      const r = checker.range(e.id);
+      return r && head >= r.from && head <= r.to;
+    });
+    return hit?.id ?? selectedRef.current;
+  }
+
+  function act(action: IssueAction, id: string | null, n?: number) {
+    if (!checker || !editor) return;
+    if (action === 'next' || action === 'prev') {
+      const list = orderedRef.current.map((e) => ({ id: e.id, r: checker.range(e.id)! })).filter((x) => x.r);
+      if (!list.length) return app.notify('No suggestions.');
+      let head = editor.state.selection.head;
+      let target = list[0]!;
+      for (let k = 0; k < (n ?? 1); k++) {
+        target = action === 'next'
+          ? list.find((x) => x.r.from > head) ?? list[0]!
+          : [...list].reverse().find((x) => x.r.from < head) ?? list[list.length - 1]!;
+        head = target.r.from;
+      }
+      return selectIssue(target.id, true);
+    }
+    const target = id ?? (action === 'open' ? orderedRef.current[0]?.id ?? null : null);
+    if (!target) return app.notify('No suggestion under the cursor.');
+    const e = checker.entries.get(target);
+    if (!e) return;
+    switch (action) {
+      case 'open':
+        return selectIssue(target, false);
+      case 'pick':
+        if (e.kind === 'grammar') {
+          const r = e.issue.replacements[(n ?? 1) - 1];
+          if (r !== undefined) checker.applyReplacement(target, r);
+        } else if (n === 1 && settings.mode === 'assistant') void checker.accept(target);
+        return;
+      case 'accept':
+        if (e.kind === 'grammar') {
+          const r = e.issue.replacements[0];
+          if (r !== undefined) checker.applyReplacement(target, r);
+        } else if (settings.mode === 'assistant') void checker.accept(target);
+        else app.notify('Teacher mode: revise the passage yourself, then zc.');
+        return;
+      case 'dismiss':
+        return checker.dismiss(target);
+      case 'reject':
+        if (e.kind !== 'style') return checker.dismiss(target);
+        return app.openPrompt('not for me, why? ', (reason) => void checker.reject(target, reason), () => editor.commands.focus());
+      case 'check':
+        if (e.kind === 'style') void checker.requestFeedback(target);
+        return;
+      case 'addword':
+        if (e.kind === 'grammar' && e.category === 'spelling') void app.updateSettings({ dictionary: [...settings.dictionary, e.issue.text] });
+        return;
+    }
+  }
+  issueRef.current = (action, n) => act(action, action === 'next' || action === 'prev' ? null : currentIssue(), n);
+
+  function focusPanel() {
+    if (!orderedRef.current.length) return app.notify('No suggestions.');
+    const id = currentIssue() ?? orderedRef.current[0]!.id;
+    selectIssue(id, false);
+    asideRef.current?.focus();
+  }
+
+  function focusEditor() {
+    const r = selectedRef.current ? checker?.range(selectedRef.current) : undefined;
+    if (r) editor?.chain().focus().setTextSelection(r.from).scrollIntoView().run();
+    else editor?.commands.focus();
+  }
+
+  const panelZ = useRef(false);
+  function onPanelKey(ev: React.KeyboardEvent) {
+    if (!settings.vim || ev.target !== asideRef.current) return;
+    const list = orderedRef.current;
+    const at = list.findIndex((e) => e.id === selectedRef.current);
+    const sel = selectedRef.current;
+    const done = () => ev.preventDefault();
+    if (panelZ.current) {
+      panelZ.current = false;
+      if (ev.key === 'g') return done(), act('addword', sel);
+      if (ev.key === '=') return done();
+    }
+    switch (ev.key) {
+      case 'j':
+      case 'ArrowDown':
+        if (list.length) selectIssue(list[Math.min(list.length - 1, at + 1)]!.id, false);
+        return done();
+      case 'k':
+      case 'ArrowUp':
+        if (list.length) selectIssue(list[Math.max(0, at - 1)]!.id, false);
+        return done();
+      case 'Enter':
+      case 'a': {
+        const e = sel ? checker?.entries.get(sel) : undefined;
+        if (e?.kind === 'style' && settings.mode === 'teacher') act('check', sel);
+        else act('accept', sel);
+        return done();
+      }
+      case 'x':
+      case 'd':
+        act('dismiss', sel);
+        return done();
+      case 'r':
+        act('reject', sel);
+        return done();
+      case 'c':
+        act('check', sel);
+        return done();
+      case 'z':
+        panelZ.current = true;
+        return done();
+      case 'Escape':
+      case 'h':
+      case 'i':
+        focusEditor();
+        return done();
+      default:
+        if (/^[1-9]$/.test(ev.key)) {
+          act('pick', sel, Number(ev.key));
+          return done();
+        }
+    }
+  }
+
+  useEffect(
+    () =>
+      app.registerCommands({
+        w: () => void save(),
+        e: () => void open(),
+        check: () => checker?.invalidate('all'),
+        doctype: (v) => (DOC_TYPES.includes(v as (typeof DOC_TYPES)[number]) ? setDocType(v) : app.notify(`Document types: ${DOC_TYPES.join(', ')}`)),
+        __editor: () => focusEditor(),
+        __panel: () => focusPanel(),
+      }),
+  );
 
   async function open() {
     try {
@@ -186,6 +368,12 @@ export function WriteView() {
           <button className={settings.mode === 'teacher' ? 'on' : ''} onClick={() => setMode('teacher')}>Teacher</button>
         </div>
         <span className="status">
+          {settings.vim && (
+            <span className={`vim-mode vim-mode-${vimMode}`}>
+              {vimMode === 'visual-line' ? 'V-LINE' : vimMode!.toUpperCase()}
+              {vimPending && <span className="kbd">{vimPending}</span>}
+            </span>
+          )}
           <span className={`dot ${err ? 'err' : busy ? 'busy' : 'ok'}`} />
           {err ? <span className="error" title={checker?.message}>{checker?.message.slice(0, 80)}</span> : busy ? (checker?.stylePhase === 'busy' ? 'Checking style' : 'Checking') : 'Up to date'}
         </span>
@@ -196,7 +384,7 @@ export function WriteView() {
             <EditorContent editor={editor} />
           </div>
         </div>
-        <aside className="side">
+        <aside className="side" ref={asideRef} tabIndex={-1} data-vim-scope onKeyDown={onPanelKey}>
           <div className="side-head">
             <div className="chips">
               {(Object.keys(CATEGORY_LABEL) as Category[]).map((c) => (
