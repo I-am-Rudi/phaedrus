@@ -7,6 +7,7 @@ import { hintFor } from '@shared/profile/feedback';
 import type { Category, Mode } from '@shared/types';
 import { Checker, type Entry, type FeedbackEntry, type StyleEntry } from '../editor/checker';
 import { BlockSeparators, blocks, IssuesExtension, LatexHeadings } from '../editor/issues';
+import { PlainTextPaste } from '../editor/paste';
 import { cycleView } from '../vim/app';
 import { Vim, type IssueAction } from '../vim/editorVim';
 import { SAMPLE_DOCUMENT } from '../sample';
@@ -42,6 +43,8 @@ export function WriteView() {
   const { backend, settings, general, project, mock } = app;
   const [doc, setDoc] = useState<{ path: string | null; name: string }>({ path: null, name: 'untitled.md' });
   const [dirty, setDirty] = useState(false);
+  const docNameRef = useRef(doc.name);
+  docNameRef.current = doc.name;
   const [docType, setDocType] = useState('paper');
   const [filters, setFilters] = useState<Record<Category, boolean>>({ spelling: true, grammar: true, style: true, rules: true });
   const [selected, setSelected] = useState<string | null>(null);
@@ -90,6 +93,7 @@ export function WriteView() {
       vim.extension(),
       BlockSeparators,
       LatexHeadings,
+      PlainTextPaste(() => docNameRef.current),
       IssuesExtension((id) => {
         setSelected(id);
         setPopover(id);
