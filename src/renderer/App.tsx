@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { applyTheme } from './themes';
 import { useApp, type ViewId } from './state';
-import { CommandLine, HelpOverlay, useGlobalVim } from './vim/app';
+import { CheatSheet, CommandLine, HelpOverlay, useGlobalVim } from './vim/app';
 import { LeaderMenu } from './vim/leader';
 import { BlendView } from './views/BlendView';
 import { ExtractView } from './views/ExtractView';
@@ -49,6 +49,7 @@ export function App() {
         <CommandLine />
         <HelpOverlay />
         <LeaderMenu />
+        <CheatSheet />
         {toast && <div className="notice" style={{ position: 'fixed', bottom: 16, right: 16, zIndex: 10 }}>{toast}</div>}
       </main>
     </div>

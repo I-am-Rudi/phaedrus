@@ -196,7 +196,8 @@ Turn them on in Settings > Keys. The editor becomes modal, the rest of the app f
 | `SPC p` | profiles: choose general or project profile, edit, extract, blend |
 | `SPC d` | document: type, recheck |
 | `SPC g` | go to a view |
-| `SPC :` `SPC ?` | command line, key list |
+| `SPC h` | a small cheat sheet of the most-used keys, kept open while you write |
+| `SPC :` `SPC ?` | command line, full key list |
 
 **Editing** has normal, insert, visual and visual-line modes with counts; motions `h j k l w b e W B E 0 ^ $ gg G { } f t F T ; , / ? n N`; operators `d c y` with motions, doubled for lines, or with the text objects `iw aw iW aW is as ip ap`; and `x X D C s S r J ~ p P u Ctrl-r i a I A o O Ctrl-d Ctrl-u zz`. `j` and `k` move by wrapped screen lines. Yanks also go to the system clipboard.
 

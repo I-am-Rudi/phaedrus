@@ -283,3 +283,13 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .theme-swatch.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .theme-dots { display: flex; gap: 4px; }
 .theme-dots i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+/* ---------- vim cheat sheet ---------- */
+.cheat {
+  position: fixed; right: 356px; bottom: 16px; z-index: 12; width: 300px; background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: 3px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px;
+}
+.cheat-group { display: flex; flex-direction: column; gap: 1px; }
+.cheat-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); margin-top: 2px; }
+.cheat-row { display: grid; grid-template-columns: 112px 1fr; gap: 8px; }
+.cheat-keys { font-family: ui-monospace, monospace; color: var(--accent-ink); }

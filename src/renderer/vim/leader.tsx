@@ -69,6 +69,7 @@ export function useLeaderTree(): LeaderNode[] {
           { key: 's', label: 'settings', run: cmd('settings') },
         ],
       },
+      { key: 'h', label: 'cheat sheet (toggle)', run: () => app.setCheatOpen(!app.cheatOpen) },
       { key: ':', label: 'command line', run: () => app.openPrompt(':', (l) => app.runCommand(l)) },
       { key: '?', label: 'all keys', run: () => app.setHelpOpen(true) },
     ];

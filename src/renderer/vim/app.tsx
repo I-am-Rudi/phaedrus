@@ -75,6 +75,7 @@ const KEYS: [string, [string, string][]][] = [
   ]],
   ['Space menu', [
     ['Space', 'opens a menu of everything else: s suggestions, f file, m mode, p profiles, d document, g go to view; Backspace goes up'],
+    ['Space h', 'toggle a small cheat sheet of the most-used keys'],
   ]],
   ['Modes', [
     ['i a I A o O', 'insert before, after, at line start, at line end, on a new line below, above'],
@@ -224,4 +225,57 @@ export function useGlobalVim() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+}
+
+/** Small, non-modal reference of the most-used keys; SPC h toggles it. */
+export function CheatSheet() {
+  const { cheatOpen, setCheatOpen, settings } = useApp();
+  if (!cheatOpen || !settings.vim) return null;
+  const esc = ['Esc', 'Ctrl-[', ...(settings.vimEscape.ctrlC ? ['Ctrl-c'] : []), ...(settings.vimEscape.sequence ? [settings.vimEscape.sequence] : [])].join(' ');
+  const rows: [string, [string, string][]][] = [
+    ['Suggestions', [
+      ['Tab S-Tab', 'next, previous, shown in place'],
+      ['K', 'show the one under the cursor'],
+      ['Enter', 'accept (teacher: check revision)'],
+      ['1-9 x r +', 'pick, dismiss, not for me, add word'],
+    ]],
+    ['Modes', [
+      ['i a A o', 'insert here, after, at end, new line'],
+      [esc, 'back to normal'],
+      ['v V', 'visual, visual line'],
+    ]],
+    ['Move', [
+      ['w b e', 'word forward, back, end'],
+      ['0 $  gg G', 'line start, end, top, bottom'],
+      ['f t  /  { }', 'to char, search, paragraph'],
+    ]],
+    ['Edit', [
+      ['dw ciw dd', 'delete word, change word, delete line'],
+      ['yy p u Ctrl-r', 'yank line, paste, undo, redo'],
+    ]],
+    ['More', [
+      ['Space', 'menu of everything else'],
+      [':w  gt', 'save, next view'],
+    ]],
+  ];
+  return (
+    <div className="cheat" role="complementary" aria-label="Vim cheat sheet">
+      <div className="row">
+        <b className="grow">Vim keys</b>
+        <span className="small muted">SPC h hides</span>
+        <button className="btn ghost small" onClick={() => setCheatOpen(false)} aria-label="Close cheat sheet">×</button>
+      </div>
+      {rows.map(([group, items]) => (
+        <div key={group} className="cheat-group">
+          <div className="cheat-title">{group}</div>
+          {items.map(([k, d]) => (
+            <div className="cheat-row" key={k}>
+              <span className="cheat-keys">{k}</span>
+              <span>{d}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
 }

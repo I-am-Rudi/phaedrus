@@ -37,6 +37,8 @@ interface AppState {
   setHelpOpen(open: boolean): void;
   leaderOpen: boolean;
   setLeaderOpen(open: boolean): void;
+  cheatOpen: boolean;
+  setCheatOpen(open: boolean): void;
   /** Updated synchronously, so keys typed right after Space reach the menu. */
   leaderRef: { current: boolean };
   viewArg: string | undefined;
@@ -64,6 +66,7 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
   const [helpOpen, setHelpOpen] = useState(false);
   const [leaderOpen, setLeaderOpenState] = useState(false);
   const leaderRef = useRef(false);
+  const [cheatOpen, setCheatOpen] = useState(false);
   const setLeaderOpen = useCallback((open: boolean) => {
     leaderRef.current = open;
     setLeaderOpenState(open);
@@ -184,9 +187,9 @@ export function AppProvider({ backend, mock, initial, children }: { backend: Bac
       language, activeGeneralId, setActiveGeneral, generalMismatch: mismatch,
       view, viewArg, go, toast, notify,
       prompt, openPrompt: (prefix, onSubmit, onClose) => setPrompt({ prefix, onSubmit, onClose }), closePrompt: () => setPrompt(null),
-      registerCommands, runCommand, helpOpen, setHelpOpen, leaderOpen, setLeaderOpen, leaderRef,
+      registerCommands, runCommand, helpOpen, setHelpOpen, leaderOpen, setLeaderOpen, leaderRef, cheatOpen, setCheatOpen,
     }),
-    [backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen, leaderOpen],
+    [backend, mock, settings, updateSettings, summaries, general, project, refreshProfiles, profileChanged, language, activeGeneralId, setActiveGeneral, mismatch, view, viewArg, go, toast, notify, prompt, registerCommands, runCommand, helpOpen, leaderOpen, cheatOpen],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
