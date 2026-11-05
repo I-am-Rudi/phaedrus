@@ -57,6 +57,40 @@ export class Vim {
   private head = 0;
   private goalX: number | null = null;
   private listeners = new Set<() => void>();
+  private escape = { sequence: '', timeoutMs: 300, ctrlC: true };
+  private typed: { ch: string; t: number }[] = [];
+
+  /** Remapped Escape: an insert-mode key sequence (jk, jj, ...) and/or Ctrl-c. */
+  setEscape(opts: { sequence: string; timeoutMs: number; ctrlC: boolean }) {
+    this.escape = { ...opts, sequence: [...opts.sequence.trim()].slice(0, 4).join('') };
+    this.typed = [];
+  }
+
+  /** Insert mode: does this key complete the escape sequence? Removes the already-typed part. */
+  private escapeSequence(e: KeyboardEvent): boolean {
+    const seq = this.escape.sequence;
+    if (seq.length < 2 || e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) {
+      this.typed = [];
+      return false;
+    }
+    const now = performance.now();
+    const last = this.typed[this.typed.length - 1];
+    if (last && now - last.t > this.escape.timeoutMs) this.typed = [];
+    this.typed.push({ ch: e.key, t: now });
+    if (this.typed.length > seq.length) this.typed = this.typed.slice(-seq.length);
+    if (this.typed.map((x) => x.ch).join('') !== seq) return false;
+    const before = seq.slice(0, -1);
+    const { state } = this.editor;
+    const head = state.selection.head;
+    const from = head - before.length;
+    if (from < 0 || state.doc.textBetween(from, head, '\n') !== before) {
+      this.typed = [];
+      return false;
+    }
+    this.editor.view.dispatch(state.tr.delete(from, head));
+    this.typed = [];
+    return true;
+  }
 
   private editor!: Editor;
 
@@ -159,8 +193,9 @@ export class Vim {
     const key = tokenize(e);
     if (!key) return false;
 
+    if (key === '<C-c>' && !this.escape.ctrlC) return false;
     if (this.mode === 'insert') {
-      if (key === '<Esc>' || key === '<C-[>') {
+      if (key === '<Esc>' || key === '<C-[>' || key === '<C-c>' || this.escapeSequence(e)) {
         const t = this.ti.text;
         const i = this.cursor;
         this.setMode('normal');
@@ -188,7 +223,7 @@ export class Vim {
   }
 
   private process(key: string) {
-    if (key === '<Esc>' || key === '<C-[>') {
+    if (key === '<Esc>' || key === '<C-[>' || key === '<C-c>') {
       const wasVisual = this.mode !== 'normal';
       this.reset();
       if (wasVisual) this.exitVisual();
@@ -815,7 +850,7 @@ function tokenize(e: KeyboardEvent): string | null {
   if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(k)) return null;
   if (e.ctrlKey) {
     const c = k.toLowerCase();
-    if (['r', 'w', 'd', 'u', '[', 'l', 'h'].includes(c)) return `<C-${c}>`;
+    if (['r', 'w', 'd', 'u', '[', 'l', 'h', 'c'].includes(c)) return `<C-${c}>`;
     return null; // let the app handle Ctrl-S, Ctrl-O, ...
   }
   if (k === 'Escape') return '<Esc>';

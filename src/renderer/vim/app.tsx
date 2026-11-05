@@ -50,7 +50,7 @@ export function CommandLine() {
           if (e.key === 'Enter') {
             e.preventDefault();
             finish(true);
-          } else if (e.key === 'Escape' || (e.key === 'Backspace' && !value)) {
+          } else if (e.key === 'Escape' || (e.ctrlKey && (e.key === 'c' || e.key === '[')) || (e.key === 'Backspace' && !value)) {
             e.preventDefault();
             finish(false);
           } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -169,7 +169,7 @@ export function useGlobalVim() {
       const target = e.target as HTMLElement | null;
       if (target?.closest('.ProseMirror')) return;
       if (isField(target)) {
-        if (e.key === 'Escape') target!.blur();
+        if (e.key === 'Escape' || (e.ctrlKey && e.key === '[')) target!.blur();
         return;
       }
       if (e.metaKey || e.altKey) return;

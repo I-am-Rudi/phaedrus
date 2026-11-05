@@ -164,7 +164,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Gorgias',
-    backgroundColor: '#14161a',
+    backgroundColor: '#fafafa',
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.mjs'), sandbox: false, contextIsolation: true },
   });
   w.webContents.setWindowOpenHandler(({ url }) => {

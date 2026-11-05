@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { applyTheme } from './themes';
 import { useApp, type ViewId } from './state';
 import { CommandLine, HelpOverlay, useGlobalVim } from './vim/app';
 import { LeaderMenu } from './vim/leader';
@@ -18,8 +19,9 @@ const ICONS: Record<ViewId, ReactNode> = {
 const LABELS: Record<ViewId, string> = { write: 'Write', profiles: 'Profiles', extract: 'Extract', blend: 'Blend', settings: 'Settings' };
 
 export function App() {
-  const { view, go, mock, toast } = useApp();
+  const { view, go, mock, toast, settings } = useApp();
   useGlobalVim();
+  useEffect(() => applyTheme(settings.theme ?? 'system'), [settings.theme]);
   const button = (id: ViewId) => (
     <button key={id} className={view === id ? 'active' : ''} onClick={() => go(id)} title={LABELS[id]}>
       <svg viewBox="0 0 24 24" aria-hidden>{ICONS[id]}</svg>

@@ -26,7 +26,9 @@ export function defaultSettings(userData: string): Settings {
     activeProjectProfile: null,
     mode: 'assistant',
     dictionary: [],
+    theme: 'system',
     vim: false,
+    vimEscape: { sequence: '', timeoutMs: 300, ctrlC: true },
     styleDebounceMs: 2500,
     grammarDebounceMs: 700,
   };

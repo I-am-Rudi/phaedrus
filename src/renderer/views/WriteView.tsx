@@ -96,6 +96,7 @@ export function WriteView() {
     if (editor) vim.attach(editor);
     vim.setEnabled(settings.vim);
   }, [editor, vim, settings.vim]);
+  useEffect(() => vim.setEscape(settings.vimEscape ?? { sequence: '', timeoutMs: 300, ctrlC: true }), [vim, settings.vimEscape]);
   const vimState = useSyncExternalStore(
     (fn) => vim.subscribe(fn),
     () => `${vim.mode}|${vim.pending}`,
@@ -234,6 +235,8 @@ export function WriteView() {
     const e = checker.entries.get(id)!;
     switch (key) {
       case '<Esc>':
+      case '<C-[>':
+      case '<C-c>':
         setPopover(null);
         return true;
       case 'Enter':

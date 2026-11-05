@@ -165,8 +165,19 @@ export interface Settings {
   activeProjectProfile: string | null;
   mode: Mode;
   dictionary: string[];
+  /** Colour theme id (see themes.ts) or "system". */
+  theme: string;
   /** Vim keybindings in the editor and across the app. */
   vim: boolean;
+  /** Extra ways to leave insert mode, like `inoremap jk <Esc>` in a vimrc. */
+  vimEscape: {
+    /** Key sequence typed in insert mode, e.g. "jk" or "jj"; empty = off. */
+    sequence: string;
+    /** Max time between the keys of the sequence (vim's timeoutlen). */
+    timeoutMs: number;
+    /** Ctrl-c acts as Escape. */
+    ctrlC: boolean;
+  };
   styleDebounceMs: number;
   grammarDebounceMs: number;
 }
