@@ -277,3 +277,8 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .help td { padding: 3px 0; vertical-align: top; border-bottom: 1px solid var(--line); }
 .help .kbd-cell { font-family: ui-monospace, monospace; padding-right: 18px; width: 230px; color: var(--ink); }
 [data-activate]:focus-visible, .btn:focus-visible, .seg button:focus-visible, .rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- inline suggestion popover ---------- */
+.popover { position: fixed; z-index: 15; width: 340px; }
+.popover .card { cursor: default; border-color: var(--line-strong); }
+.popover .card:hover { border-color: var(--line-strong); }

@@ -8,7 +8,7 @@ Spelling and grammar come from an open-source engine (LanguageTool or Harper). S
 
 ## Modes
 
-Both modes underline issues in the text in three colours: red for spelling, blue for grammar, green for style. Spelling and grammar behave the same in both.
+Both modes underline issues in the text in three colours: red for spelling, blue for grammar, green for style. Click an underline (or press `z=` with vim keys) to get the suggestion right there, with the same actions as the side panel, which lists every suggestion. Spelling and grammar behave the same in both modes.
 
 - **Assistant** shows each style suggestion in full: what drifts from the move, a rewrite of the quoted passage, and why. *Accept* applies the rewrite, *Dismiss* hides it, *Not for me* hides it and records your reason as a note on the move.
 - **Teacher** shows only a hint (a question that points at the problem) with no rewrite. Revise the passage yourself. When you leave the paragraph, or press *Check my revision*, the model judges the edit as *landed*, *partly*, *overcorrected* or *missed* and says why.

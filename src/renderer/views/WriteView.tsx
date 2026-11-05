@@ -39,6 +39,9 @@ export function WriteView() {
   const [docType, setDocType] = useState('paper');
   const [filters, setFilters] = useState<Record<Category, boolean>>({ spelling: true, grammar: true, style: true });
   const [selected, setSelected] = useState<string | null>(null);
+  /** Suggestion shown in place, under its underline. */
+  const [popover, setPopover] = useState<string | null>(null);
+  const [popoverTick, setPopoverTick] = useState(0);
 
   // Live values for the checker without re-creating it.
   const live = useRef({ settings, general, project, docType, language: app.language, profileChanged: app.profileChanged });
@@ -75,6 +78,7 @@ export function WriteView() {
       vim.extension(),
       IssuesExtension((id) => {
         setSelected(id);
+        setPopover(id);
         checkerRef.current?.select(id);
         if (id) document.getElementById(`card-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }),
@@ -177,7 +181,8 @@ export function WriteView() {
     if (!e) return;
     switch (action) {
       case 'open':
-        return selectIssue(target, false);
+        selectIssue(target, false);
+        return setPopover(target);
       case 'pick':
         if (e.kind === 'grammar') {
           const r = e.issue.replacements[(n ?? 1) - 1];
@@ -285,6 +290,11 @@ export function WriteView() {
       }),
   );
 
+  // Close the popover once its suggestion is gone (applied, dismissed, edited away).
+  useEffect(() => {
+    if (popover && checker && !checker.entries.has(popover)) setPopover(null);
+  }, [popover, checker, version]);
+
   async function open() {
     try {
       const d = await backend.files.openDocument();
@@ -379,10 +389,33 @@ export function WriteView() {
         </span>
       </div>
       <div className="write">
-        <div className="page-scroll">
+        <div className="page-scroll" onScroll={() => popover && setPopoverTick((t) => t + 1)}>
           <div className={`page ${settings.mode}`}>
             <EditorContent editor={editor} />
           </div>
+          {popover && checker && editor && checker.entries.has(popover) && (
+            <InlinePopover
+              key={popover}
+              entry={checker.entries.get(popover)!}
+              anchor={checker.range(popover)}
+              editorView={editor.view}
+              tick={popoverTick + Number(version.length)}
+              onClose={() => setPopover(null)}
+            >
+              <SuggestionCard
+                e={checker.entries.get(popover)!}
+                mode={settings.mode}
+                selected={false}
+                inline
+                checker={checker}
+                onSelect={() => {}}
+                onAddWord={(w) => {
+                  void app.updateSettings({ dictionary: [...settings.dictionary, w] });
+                  setPopover(null);
+                }}
+              />
+            </InlinePopover>
+          )}
         </div>
         <aside className="side" ref={asideRef} tabIndex={-1} data-vim-scope onKeyDown={onPanelKey}>
           <div className="side-head">
@@ -439,9 +472,10 @@ export function WriteView() {
   );
 }
 
-function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord }: {
-  e: Entry; mode: Mode; selected: boolean; checker: Checker; onSelect(): void; onAddWord(w: string): void;
+function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord, inline = false }: {
+  e: Entry; mode: Mode; selected: boolean; checker: Checker; onSelect(): void; onAddWord(w: string): void; inline?: boolean;
 }) {
+  const domId = inline ? undefined : `card-${e.id}`;
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const stop = (fn: () => void) => (ev: React.MouseEvent) => {
@@ -452,7 +486,7 @@ function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord }: {
   if (e.kind === 'grammar') {
     const i = e.issue;
     return (
-      <div id={`card-${e.id}`} className={`card ${e.category}${selected ? ' selected' : ''}`} onClick={onSelect}>
+      <div id={domId} className={`card ${e.category}${selected ? ' selected' : ''}`} onClick={onSelect}>
         <div className="kind">{CATEGORY_LABEL[e.category]}</div>
         <div className="quote">{i.text}</div>
         <div className="msg">{i.message}</div>
@@ -471,7 +505,7 @@ function SuggestionCard({ e, mode, selected, checker, onSelect, onAddWord }: {
   const s = e.s;
   const hint = hintFor(e.move.hintLevel, s.hints, e.move.title);
   return (
-    <div id={`card-${e.id}`} className={`card style${selected ? ' selected' : ''}`} onClick={onSelect}>
+    <div id={domId} className={`card style${selected ? ' selected' : ''}`} onClick={onSelect}>
       <div className="kind">Style <span>·</span> <span style={{ textTransform: 'none', letterSpacing: 0 }}>{e.move.title}</span></div>
       {mode === 'assistant' ? (
         <>
@@ -536,3 +570,62 @@ function FeedbackCard({ f, onClose }: { f: FeedbackEntry; onClose(): void }) {
 }
 
 export type { StyleEntry };
+
+/** A suggestion card floating under its underline in the text. */
+function InlinePopover({ entry, anchor, editorView, tick, onClose, children }: {
+  entry: Entry;
+  anchor: { from: number; to: number } | undefined;
+  editorView: import('@tiptap/pm/view').EditorView;
+  tick: number;
+  onClose(): void;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!anchor) return;
+    try {
+      const start = editorView.coordsAtPos(anchor.from);
+      const end = editorView.coordsAtPos(anchor.to, -1);
+      const width = 340;
+      const height = ref.current?.offsetHeight ?? 160;
+      const below = end.bottom + 6;
+      const top = below + height > window.innerHeight - 8 ? Math.max(8, start.top - height - 6) : below;
+      const left = Math.max(72, Math.min(start.left, window.innerWidth - width - 12));
+      setPos({ top, left });
+    } catch {
+      setPos(null);
+    }
+  }, [anchor?.from, anchor?.to, editorView, tick]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (ref.current?.contains(t) || t.closest('.issue')) return;
+      onClose();
+    };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('mousedown', onDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('mousedown', onDown, true);
+    };
+  }, [onClose]);
+
+  if (!anchor) return null;
+  return (
+    <div
+      ref={ref}
+      className={`popover ${entry.category}`}
+      style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
+      role="dialog"
+      aria-label="Suggestion"
+    >
+      {children}
+    </div>
+  );
+}
