@@ -4,8 +4,9 @@
 // Style: paragraphs of real prose, longer debounce, one request at a time,
 // cached by text + context + profile content (not weights, so accepting a
 // suggestion does not trigger a full recheck).
-// Teacher mode: a style range you edit becomes "revising"; when you leave
-// the paragraph (or press "Check my revision") the edit is sent for feedback.
+// Teacher mode: a style range you edit becomes "revising"; the edit is sent
+// for feedback when you finish revising the paragraph (Done) or press
+// "Check my revision", never just because the cursor moved.
 
 import type { Editor } from '@tiptap/core';
 import type { Backend } from '@shared/api';
@@ -51,6 +52,8 @@ export interface FeedbackEntry {
 export interface CheckerDeps {
   backend: Backend;
   settings(): Settings;
+  /** A range whose style hints must stay as they are (the paragraph under revision). */
+  paused?(): { from: number; to: number } | null;
   /** The chosen profiles, plus those switched to always on for this language. */
   profiles(): { general: TasteProfile | null; project: TasteProfile | null; always: TasteProfile[] };
   /** Active rule sets. */
@@ -162,20 +165,15 @@ export class Checker {
         changed = true;
       }
     }
-    if (this.deps.settings().mode === 'teacher') {
-      const head = this.editor.state.selection.head;
-      const bs = blocks(this.editor.state.doc);
+    // Teacher mode: an edited passage is marked as revised. Feedback is asked
+    // for only when the revision is confirmed (finishRevision) or on request.
+    if (this.deps.settings().mode === 'teacher' && transaction.docChanged) {
       for (const it of items) {
         const e = this.entries.get(it.id);
-        if (e?.kind !== 'style') continue;
-        const now = textAt(this.editor.state.doc, it.from, it.to);
-        if (e.status === 'open' && now !== e.original) {
+        if (e?.kind !== 'style' || e.status !== 'open') continue;
+        if (textAt(this.editor.state.doc, it.from, it.to) !== e.original) {
           e.status = 'revising';
           changed = true;
-        }
-        if (e.status === 'revising') {
-          const b = bs.find((x) => it.from >= x.pos && it.from <= x.end);
-          if (b && (head < b.pos || head > b.end)) void this.requestFeedback(e.id);
         }
       }
     }
@@ -279,6 +277,9 @@ export class Checker {
       const title = sectionTitle(db);
       if (title) section = title;
       if (b.type === 'heading' || proseOf(b.text).trim().length < MIN_STYLE_CHARS || busyBlocks.has(b.index)) continue;
+      // The paragraph being revised keeps its hints until the revision is done.
+      const paused = this.deps.paused?.();
+      if (paused && b.pos < paused.to && b.end > paused.from) continue;
       const moves = effectiveMoves(general, project, { docType, section }, always);
       const rules = activeRules(ruleSets, { docType, section });
       if (!moves.length && !rules.length) continue;
@@ -467,6 +468,37 @@ export class Checker {
     this.dismiss(id);
     if (e.rule) return this.deps.onRuleEvent(e.rule.setId, { type: 'reject', ruleId: e.rule.ruleId, reason, docType: this.deps.docType() });
     await this.profileEvent({ type: 'reject', moveId: e.move.id, reason, docType: this.deps.docType() });
+  }
+
+  /**
+   * The text in [from, to) was put back as it was (a discarded revision):
+   * drop its suggestions and lay them out again. Results come from the caches,
+   * so this costs no model call.
+   */
+  restoreRange(from: number, to: number) {
+    const ids = getIssues(this.editor.state).filter((it) => it.from < to && it.to > from).map((it) => it.id);
+    for (const id of ids) this.entries.delete(id);
+    if (ids.length) this.dispatch({ type: 'remove', ids });
+    for (const b of blocks(this.editor.state.doc)) {
+      if (b.pos < to && b.end > from) {
+        this.appliedGrammar.delete(b.index);
+        this.appliedStyle.delete(b.index);
+      }
+    }
+    this.schedule(true);
+    this.emit();
+  }
+
+  /** Teacher mode: the revision of the paragraph in [from, to) is done; ask for feedback on every passage that changed. */
+  finishRevision(from: number, to: number) {
+    const ids = getIssues(this.editor.state)
+      .filter((it) => it.from >= from && it.to <= to)
+      .map((it) => this.entries.get(it.id))
+      .filter((e): e is StyleEntry => e?.kind === 'style' && e.status === 'revising')
+      .map((e) => e.id);
+    for (const id of ids) void this.requestFeedback(id);
+    this.schedule();
+    return ids.length;
   }
 
   /** Teacher mode: ask for feedback on the user's revision of a flagged passage. */

@@ -397,3 +397,24 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
   content: '…'; position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center;
   padding: 0 4px 0 14px; color: var(--ink-2); background: linear-gradient(to right, transparent, var(--surface) 10px);
 }
+
+/* ---------- teacher mode: revising one paragraph ---------- */
+.ProseMirror.in-revision .dimmed-block { opacity: 0.32; }
+.ProseMirror.in-revision .revising-block { box-shadow: -14px 0 0 -11px var(--accent); }
+.revision-bar {
+  position: sticky; top: 0; z-index: 6; margin: 0 auto; max-width: 760px; width: calc(100% - 48px);
+  background: var(--surface); border: 1px solid var(--accent); border-top: 0; border-radius: 0 0 3px 3px;
+  padding: 8px 12px; display: flex; flex-direction: column; gap: 6px;
+}
+.revision-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.revision-title { font-weight: 600; }
+.revision-bar .btn .kbd { font-size: 10px; margin-left: 4px; background: color-mix(in srgb, var(--on-accent) 22%, transparent); color: var(--on-accent); }
+.revision-hint { font-size: 13px; color: var(--ink-2); border-left: 2px solid var(--style); padding-left: 8px; }
+.revision-hint.rules { border-left-color: var(--rules); }
+.revision-move { font-weight: 500; color: var(--ink); }
+
+/* ---------- text and panel find each other ---------- */
+.card.flash { animation: flash-card 0.9s ease-out; }
+.issue.flash { animation: flash-text 0.9s ease-out; }
+@keyframes flash-card { from { box-shadow: 0 0 0 2px var(--accent); } to { box-shadow: 0 0 0 2px transparent; } }
+@keyframes flash-text { from { background: color-mix(in srgb, var(--accent) 35%, transparent); } }
