@@ -8,6 +8,7 @@ import { Extension } from '@tiptap/core';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { isLatexHeading } from '@shared/document';
 import type { Category } from '@shared/types';
 
 export interface IssueRange {
@@ -144,6 +145,8 @@ export interface BlockInfo {
   end: number;
   type: 'heading' | 'paragraph';
   level: number;
+  /** Whitespace before this block in the file (see document.ts). */
+  sep?: string;
   /** Plain text, hard breaks as "\n". */
   text: string;
   /** Document position of each character in `text`. */
@@ -175,9 +178,51 @@ export function blocks(doc: PMNode): BlockInfo[] {
       end: pos + node.nodeSize,
       type: node.type.name === 'heading' ? 'heading' : 'paragraph',
       level: (node.attrs.level as number) ?? 0,
+      sep: (node.attrs.sep as string | null) ?? undefined,
       text,
       posAt: (o) => (o < positions.length ? positions[o]! : positions.length ? positions[positions.length - 1]! + 1 : contentEnd),
     });
   });
   return out;
 }
+
+/**
+ * Keeps the exact whitespace between blocks of the opened file on each block,
+ * so saving does not reflow the file. New blocks (Enter) get the default.
+ */
+export const BlockSeparators = Extension.create({
+  name: 'blockSeparators',
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['paragraph', 'heading'],
+        attributes: {
+          sep: { default: null, keepOnSplit: false, parseHTML: () => null, renderHTML: () => ({}) },
+        },
+      },
+    ];
+  },
+});
+
+const latexHeadingKey = new PluginKey('latexHeadings');
+
+/** Show LaTeX sectioning lines (\section{...}) like headings. */
+export const LatexHeadings = Extension.create({
+  name: 'latexHeadings',
+  addProseMirrorPlugins: () => [
+    new Plugin({
+      key: latexHeadingKey,
+      props: {
+        decorations(state) {
+          const decos: Decoration[] = [];
+          state.doc.forEach((node, pos) => {
+            if (node.type.name !== 'paragraph' || node.childCount > 1) return;
+            const m = /^\s*\\(part|chapter|section|subsection|subsubsection|paragraph)\*?/.exec(node.textContent);
+            if (m && isLatexHeading(node.textContent)) decos.push(Decoration.node(pos, pos + node.nodeSize, { class: `latex-heading latex-${m[1]}` }));
+          });
+          return DecorationSet.create(state.doc, decos);
+        },
+      },
+    }),
+  ],
+});

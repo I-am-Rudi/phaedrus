@@ -192,9 +192,9 @@ All checks treat LaTeX as markup, not prose. Before spelling and grammar run, ea
 | `\cite`, `\label`, `\footnote`, other commands, `%` comments, `verbatim`/`tikzpicture`/`tabular` environments | removed |
 | `\%` `\$` `~` ` `` ` `''` | `%` `$` space `"` `"` |
 
-Findings that touch a placeholder or markup are dropped; the rest are placed on the original text. A `$` only opens math under pandoc's rule (no space after the opening `$`, none before the closing one, no digit right after it), so "costs $5 and $10" stays prose. Eq, Fig, Sec, Ref and similar abbreviations are never flagged.
+A removed citation takes the space before it along when punctuation follows, so "as in `\cite{x}`." is checked as "as in." and not flagged for a space before the full stop. Findings that touch a placeholder or markup are dropped; the rest are placed on the original text. A `$` only opens math under pandoc's rule (no space after the opening `$`, none before the closing one, no digit right after it), so "costs $5 and $10" stays prose. Eq, Fig, Sec, Ref and similar abbreviations are never flagged.
 
-Style checks see the original paragraph and are told to leave math, commands and comments untouched. A suggestion whose rewrite does not keep every equation and reference of the quoted passage verbatim is discarded, and paragraphs that are mostly equations are skipped. Metrics are measured on the prose, and extraction sources keep inline math but show displayed equations as `[equation]`.
+Style checks see the original paragraph and are told to leave math, commands and comments untouched. A suggestion whose rewrite does not keep every equation and reference of the quoted passage verbatim is discarded, and paragraphs that are mostly equations are skipped. Metrics are measured on the prose, and extraction sources keep inline math but show displayed equations as `[equation]`, with each paragraph joined onto one line.
 
 ## Vim keybindings
 
@@ -226,7 +226,11 @@ In the desktop app Ctrl+W and Ctrl+R are left to the page, so they reach vim ins
 
 ## Documents
 
-The editor opens and saves `.md`, `.txt` and `.tex` as plain text: blocks separated by blank lines, `#` lines as headings, single line breaks kept. Formatting markup stays as literal text. `Ctrl/Cmd+O` opens, `Ctrl/Cmd+S` saves.
+The editor opens and saves `.md`, `.txt` and `.tex` as plain text. Formatting markup stays as literal text. `Ctrl/Cmd+O` opens, `Ctrl/Cmd+S` saves.
+
+A paragraph is what TeX and Markdown mean by one: the lines up to the next blank line. Single line breaks inside it (one sentence per line, or a hard wrap at 80 columns) are source formatting, so every check reads the paragraph as one piece of text and a sentence that runs over several lines is still one sentence. The line breaks stay where they are in the editor and in the saved file.
+
+A file counts as LaTeX by its `.tex` extension, or when it contains `\documentclass`, `\begin{document}` or several `\section` lines. In LaTeX, `#` is not a heading, and a sectioning line (`\part` to `\paragraph`, with an optional `\label` and comment) is its own block even with no blank line before the following text. It is shown like a heading and gives its title to the style checks as the section. The whitespace between blocks is kept exactly, so a file you open and save without edits comes back byte for byte.
 
 ## Layout
 

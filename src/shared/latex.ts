@@ -77,6 +77,12 @@ class Builder {
     }
   }
 
+  pop() {
+    this.text = this.text.slice(0, -1);
+    this.map.pop();
+    this.synthetic.pop();
+  }
+
   get lastChar(): string {
     return this.text[this.text.length - 1] ?? '';
   }
@@ -160,6 +166,8 @@ export function maskLatex(src: string, mode: MaskMode = 'check'): Masked {
       end = skipSpaces(src, end);
     }
     b.replace(from, end, '', kind);
+    // "as in \cite{x}." must not become "as in ." (space before punctuation).
+    if (/[ \t]/.test(b.lastChar) && /[.,;:!?)\]]/.test(src[end] ?? '')) b.pop();
     return end;
   };
 
