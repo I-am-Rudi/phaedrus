@@ -1,14 +1,21 @@
 # Phaedrus
 
-Named after Plato's *Phaedrus*, the dialogue in which Socrates and Phaedrus argue about rhetoric and about what makes writing good.
+A grammar checker and writing assistant for serious writing that respects your taste. It improves your grammar and style without sanding your prose down into bland HR speak.
 
-A desktop writing assistant that checks spelling and grammar and coaches your style toward authors you choose. Style suggestions come from a **taste profile**: a Markdown file that lists concrete moves extracted from writing you admire, which you can edit, export, blend and keep under git.
+Style suggestions come from writers you actually enjoy reading. In teacher mode Phaedrus does not rewrite anything for you: it points at what to work on, you revise, and it tells you whether the revision worked. Over time it trains you to write like your favourite authors.
 
-Spelling and grammar come from an open-source engine (LanguageTool or Harper). Style comes from a language model, either through an API key or through the Claude Code / Codex CLI using the subscription you are already signed in with.
+The name comes from Plato's *Phaedrus*, the dialogue in which Socrates and Phaedrus argue about rhetoric and about what makes writing good.
+
+- **Spelling and grammar** from an open-source engine (LanguageTool or Harper), aware of LaTeX and Markdown math.
+- **Style from taste profiles:** plain Markdown files of concrete moves, extracted from texts you choose (PDF, EPUB, LaTeX, Markdown). You can edit them, blend them and keep them under git.
+- **Rules** for what must hold: a journal's author guide, a style guide, your supervisor's comments. A built-in set catches the usual signs of AI writing.
+- **Two modes:** the assistant suggests rewrites; the teacher only hints and then gives feedback on your own revision.
+- **Your own subscription:** runs through the Claude Code or Codex CLI you are already signed in to, or through an API key.
+- **A plain-text editor** for `.tex`, `.md` and `.txt`, with vim keybindings throughout if you want them.
 
 ## Modes
 
-Both modes underline issues in the text in three colours: red for spelling, blue for grammar, green for style. Click an underline (or press `z=` with vim keys) to get the suggestion right there, with the same actions as the side panel, which lists every suggestion. Spelling and grammar behave the same in both modes.
+Both modes underline issues in the text in four colours: red for spelling, blue for grammar, green for style and purple for rules. Click an underline (or press `z=` with vim keys) to get the suggestion right there, with the same actions as the side panel, which lists every suggestion. Spelling and grammar behave the same in both modes.
 
 - **Assistant** shows each style suggestion in full: what drifts from the move, a rewrite of the quoted passage, and why. *Accept* applies the rewrite, *Dismiss* hides it, *Not for me* hides it and records your reason as a note on the move.
 - **Teacher** shows only a hint (a question that points at the problem) with no rewrite. Click a flagged passage (or open it with the vim keys) to revise its paragraph: everything else is dimmed, edits and the cursor stay in that paragraph, and a bar above the page shows its hints. Nothing is sent while you write. *Done* (`Cmd/Ctrl+Enter`, Enter in vim normal mode, `:done`, `SPC s c`) asks the model to judge each changed passage as *landed*, *partly*, *overcorrected* or *missed* and say why; *Discard changes* (`:discard`, `SPC s x`) puts the paragraph back. Moving the cursor never triggers feedback. In vim normal mode Enter also closes the newest feedback card (when the cursor is not on a suggestion), as does `SPC s f`.
