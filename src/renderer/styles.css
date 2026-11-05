@@ -352,10 +352,10 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 
 /* ---------- title bar ----------
    One bar across the window. On macOS the window has no system title bar: the
-   window buttons sit at its left (14 px from the edge, the same 14 px free to
-   their right), and the bar drags the window. Controls opt out of dragging. */
+   window buttons sit at its left, centred on the toolbar controls, with a
+   little more room after them than before them; the bar drags the window. Controls opt out of dragging. */
 :root { --lights: 16px; }
-.titlebar-inset { --lights: 88px; }
+.titlebar-inset { --lights: 96px; }
 .titlebar-inset.is-fullscreen { --lights: 16px; }
 .titlebar {
   grid-column: 1 / -1; height: 46px; display: flex; align-items: center; padding-right: 16px;

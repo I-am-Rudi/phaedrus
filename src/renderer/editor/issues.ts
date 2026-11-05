@@ -69,7 +69,7 @@ function mapItems(items: IssueRange[], tr: Transaction): IssueRange[] {
     const from = tr.mapping.map(it.from, grammar ? 1 : -1);
     const to = tr.mapping.map(it.to, grammar ? -1 : 1);
     if (grammar) {
-      if (from >= to || tr.doc.textBetween(from, to, '\n') !== it.text) continue;
+      if (from >= to || tr.doc.textBetween(from, to, '\n', '\n') !== it.text) continue;
     } else if (from > to) {
       continue;
     }

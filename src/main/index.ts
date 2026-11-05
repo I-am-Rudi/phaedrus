@@ -308,7 +308,7 @@ function createWindow() {
     backgroundColor: '#fafafa',
     // macOS: no title bar; the window buttons sit in the top of the side rail
     // and the app's own top bar is the drag area.
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 14, y: 17 } } : {}),
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 14, y: 15 } } : {}),
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.mjs'), sandbox: false, contextIsolation: true },
   });
   // Ask the page before closing, so unsaved work can be saved. If the page does
