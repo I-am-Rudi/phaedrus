@@ -23,14 +23,14 @@ npm run web        # the UI in a browser with an in-memory mock backend
 |---|---|---|
 | macOS | `macos-latest` | `.dmg` and `.zip`, Apple Silicon and Intel |
 | Windows | `windows-latest` | `.exe` installer (NSIS), x64 |
-| Linux | `ubuntu-latest` | `.AppImage` and `.deb`, x64 |
+| Linux | `ubuntu-latest` | `.AppImage`, `.deb` and `.rpm`, x64 |
 
 ```bash
 npm version 0.2.0        # bumps package.json and tags v0.2.0
 git push --follow-tags   # the workflow runs, then publish the draft release on GitHub
 ```
 
-Tests and a typecheck run first, and the job fails if the tag does not match the `package.json` version. Without signing secrets the macOS and Windows builds are unsigned, so Gatekeeper and SmartScreen warn on first launch. The secrets for signing and notarization are listed at the top of the workflow. There is no auto-update yet.
+Tests and a typecheck run first, and the job fails if the tag does not match the `package.json` version. Without signing secrets the macOS builds are signed ad hoc (`identity: '-'`), which lets them run on Apple Silicon, and the Windows build is unsigned; Gatekeeper and SmartScreen still warn on first launch. A last job writes `SHA256SUMS` for all installers and attaches it to the release. The secrets for signing and notarization are listed at the top of the workflow. There is no auto-update yet.
 
 ## Layout
 
