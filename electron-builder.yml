@@ -3,6 +3,7 @@ productName: Phaedrus
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
   output: dist
+  buildResources: build
 files:
   - out/**
   - package.json
@@ -16,12 +17,15 @@ linux:
   target: [AppImage, deb]
   category: Office
   maintainer: Rudi Siebert <k.r.siebert@icloud.com>
+  icon: build/icons
 mac:
   target: [dmg, zip]
   category: public.app-category.productivity
   hardenedRuntime: true
+  icon: build/icon-mac.png
 win:
   target: nsis
+  icon: build/icon.png
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
