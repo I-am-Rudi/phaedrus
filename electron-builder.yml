@@ -25,6 +25,8 @@ mac:
   # Without a Developer ID certificate, sign ad hoc so Apple Silicon and Intel
   # builds both carry a valid signature; a real identity from CSC_LINK wins.
   identity: '-'
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   icon: build/icon-mac.png
 win:
   target: nsis
