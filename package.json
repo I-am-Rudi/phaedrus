@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "A writing assistant that checks spelling and grammar and coaches your style toward authors you choose, driven by an editable taste profile.",
   "license": "AGPL-3.0-or-later",
+  "homepage": "https://github.com/I-am-Rudi/phaedrus",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/I-am-Rudi/phaedrus.git"
+  },
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
