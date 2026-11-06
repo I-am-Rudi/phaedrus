@@ -12,6 +12,7 @@ import { applyEvent } from '@shared/profile/feedback';
 import type { SourceDoc } from '@shared/types';
 import { checkGrammar } from './grammar';
 import { readSource, SOURCE_EXTENSIONS } from './documents';
+import { ensureUserPath } from './exec';
 import { createLLM, providerLogin, providerStatus, transcribePdf } from './providers';
 import { Store } from './store';
 
@@ -360,6 +361,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  void ensureUserPath(); // start reading the shell's PATH now, so the first check does not wait for it
   await store.seedDefaults().catch((e) => console.error('Could not add the built-in rule sets:', e));
   setMenu();
   createWindow();
