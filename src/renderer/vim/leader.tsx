@@ -67,6 +67,15 @@ export function useLeaderTree(): LeaderNode[] {
         ],
       },
       {
+        key: 't', label: 'toggle suggestions', children: [
+          { key: 's', label: 'spelling', run: cmd('toggle spelling') },
+          { key: 'g', label: 'grammar', run: cmd('toggle grammar') },
+          { key: 'y', label: 'style', run: cmd('toggle style') },
+          { key: 'r', label: 'rules', run: cmd('toggle rules') },
+          { key: 'a', label: 'show all', run: cmd('toggle all') },
+        ],
+      },
+      {
         key: 'd', label: 'document', children: [
           { key: 't', label: 'document type', run: ask(':set doctype=', 'doctype') },
           { key: 'r', label: 'recheck', run: cmd('check') },

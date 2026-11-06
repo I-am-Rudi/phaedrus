@@ -15,7 +15,7 @@ import { effectiveMoves, newMove, ownerOf } from '@shared/profile/model';
 import { activeRules, type RuleEvent, type RuleSet } from '@shared/rules';
 import { proseOf } from '@shared/latex';
 import { findQuote, hash } from '@shared/spans';
-import type { EditFeedback, GrammarIssue, Mode, Settings, StyleMove, StyleSuggestion, TasteProfile } from '@shared/types';
+import type { Category, EditFeedback, GrammarIssue, Mode, Settings, StyleMove, StyleSuggestion, TasteProfile } from '@shared/types';
 import { blocks, getIssues, issuesKey, type BlockInfo, type IssueMeta, type IssueRange } from './issues';
 
 export interface GrammarEntry {
@@ -82,6 +82,8 @@ export class Checker {
   private appliedGrammar = new Map<number, string>();
   private appliedStyle = new Map<number, string>();
   private dismissed = new Set<string>();
+  /** Categories the user has switched off (chips in the panel, SPC t): their underlines are not drawn. */
+  private shown: Record<Category, boolean> = { spelling: true, grammar: true, style: true, rules: true };
   private grammarGen = 0;
   /** Style checks per paragraph key that are waiting or running. */
   private pending = new Map<string, 'queued' | 'checking'>();
@@ -242,7 +244,7 @@ export class Checker {
       const to = b.posAt(issue.to - 1) + 1;
       if (from >= to) continue;
       // Compare against the real text later (it may contain line breaks the engine saw as spaces).
-      items.push({ id, category: issue.category, from, to, text: text.slice(issue.from, issue.to) });
+      items.push({ id, category: issue.category, from, to, text: text.slice(issue.from, issue.to), hidden: !this.shown[issue.category] });
       this.entries.set(id, { id, kind: 'grammar', category: issue.category, issue });
     }
     this.appliedGrammar.set(b.index, key);
@@ -410,7 +412,7 @@ export class Checker {
       const from = b.posAt(r.from);
       const to = b.posAt(r.to - 1) + 1;
       const category = rule ? 'rules' : 'style';
-      items.push({ id, category, from, to, text: s.quote, hidden: teacher && move.hintLevel === 0 });
+      items.push({ id, category, from, to, text: s.quote, hidden: !this.shown[category] || (teacher && move.hintLevel === 0) });
       this.entries.set(id, {
         // The passage as it stands in the document (with its line breaks), not the
         // model's quote, which saw the paragraph on one line: only a real edit differs.
@@ -538,8 +540,20 @@ export class Checker {
 
   /** Apply teacher/assistant visibility after a mode switch. */
   setMode(mode: Mode) {
+    this.applyVisibility(mode);
+  }
+
+  /** Show or hide whole categories of underlines. */
+  setShown(shown: Record<Category, boolean>) {
+    this.shown = { ...shown };
+    this.applyVisibility(this.deps.settings().mode);
+  }
+
+  private applyVisibility(mode: Mode) {
     const hidden: Record<string, boolean> = {};
-    for (const e of this.entries.values()) if (e.kind === 'style') hidden[e.id] = mode === 'teacher' && e.move.hintLevel === 0;
+    for (const e of this.entries.values()) {
+      hidden[e.id] = !this.shown[e.category] || (e.kind === 'style' && mode === 'teacher' && e.move.hintLevel === 0);
+    }
     this.dispatch({ type: 'visibility', hidden });
     this.emit();
   }
