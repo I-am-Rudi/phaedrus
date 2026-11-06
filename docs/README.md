@@ -68,7 +68,7 @@ A file counts as LaTeX by its `.tex` extension, or when it contains `\documentcl
 
 ## Modes
 
-Both modes underline issues in the text in four colours: red for spelling, blue for grammar, green for style and purple for rules. Click an underline (or press `z=` with vim keys) to get the suggestion right there, with the same actions as the side panel, which lists every suggestion. Spelling and grammar behave the same in both modes.
+Both modes underline issues in the text in four colours: red for spelling, blue for grammar, green for style and purple for rules. Click an underline (or press `z=` with vim keys) to get the suggestion right there, with the same actions as the side panel, which lists every suggestion. Spelling and grammar behave the same in both modes. The chips at the top of the panel (or `SPC t` with vim keys) hide a whole category, both its cards and its underlines, until you turn it back on.
 
 - **Assistant** shows each style suggestion in full: what drifts from the move, a rewrite of the quoted passage, and why. *Accept* applies the rewrite, *Dismiss* hides it, *Not for me* hides it and records your reason as a note on the move.
 - **Teacher** shows only a hint (a question that points at the problem) with no rewrite. Click a flagged passage (or open it with the vim keys) to revise its paragraph: everything else is dimmed, edits and the cursor stay in that paragraph, and a bar above the page shows its hints. Nothing is sent while you write. *Done* (`Cmd/Ctrl+Enter`, Enter in vim normal mode, `:done`, `SPC s c`) asks the model to judge each changed passage as *landed*, *partly*, *overcorrected* or *missed* and say why; *Discard changes* (`:discard`, `SPC s x`) puts the paragraph back. Moving the cursor never triggers feedback. In vim normal mode Enter also closes the newest feedback card (when the cursor is not on a suggestion), as does `SPC s f`.
@@ -215,6 +215,7 @@ Turn them on in Settings > Keys. The editor becomes modal, the rest of the app f
 | `SPC m` | mode: toggle, assistant, teacher |
 | `SPC p` | profiles: choose general or project profile, edit, extract, blend |
 | `SPC r` | rules: toggle a rule set for this project, edit rule sets |
+| `SPC t` | toggle suggestion types: `s` spelling, `g` grammar, `y` style, `r` rules, `a` show all |
 | `SPC d` | document: type, recheck |
 | `SPC g` | go to a view |
 | `SPC h` | a small cheat sheet of the most-used keys, kept open while you write |
@@ -224,7 +225,7 @@ Turn them on in Settings > Keys. The editor becomes modal, the rest of the app f
 
 **Escape, remapped:** Esc and `Ctrl-[` always work, `Ctrl-c` too unless you turn it off, and Settings > Keys takes an insert-mode sequence such as `jk` or `jj` with a timeout, like `inoremap jk <Esc>` and `timeoutlen` in a vimrc. Caps Lock mapped to Escape in the OS arrives as a real Escape.
 
-**Elsewhere:** `Ctrl-w l` focuses the suggestion panel (`j`/`k` move, Enter accepts) and `Ctrl-w h` returns. `gt`/`gT` cycle the views. Outside the editor, `j`/`k`/`gg`/`G` move focus between controls, Enter opens list items, `i` returns to the editor. The `:` command line takes `:w`, `:e`, `:teacher`, `:assistant`, `:profile NAME`, `:project NAME`, `:set doctype=thesis`, `:check`, `:set novim` and the view names.
+**Elsewhere:** `Ctrl-w l` focuses the suggestion panel (`j`/`k` move, Enter accepts) and `Ctrl-w h` returns. `gt`/`gT` cycle the views. Outside the editor, `j`/`k`/`gg`/`G` move focus between controls, Enter opens list items, `i` returns to the editor. The `:` command line takes `:w`, `:e`, `:teacher`, `:assistant`, `:profile NAME`, `:project NAME`, `:set doctype=thesis`, `:toggle spelling` (or `grammar`, `style`, `rules`, `all`), `:check`, `:set novim` and the view names.
 
 In the desktop app Ctrl+W and Ctrl+R are left to the page, so they reach vim instead of closing or reloading the window; reload is on F5.
 

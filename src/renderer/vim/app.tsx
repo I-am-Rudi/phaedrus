@@ -76,8 +76,9 @@ const KEYS: [string, [string, string][]][] = [
     ['Ctrl-w l  Ctrl-w h', 'to the suggestion panel and back; there j k move, Enter accepts'],
   ]],
   ['Space menu', [
-    ['Space', 'opens a menu of everything else: s suggestions, f file, m mode, p profiles, d document, g go to view; Backspace goes up'],
+    ['Space', 'opens a menu of everything else: s suggestions, t toggle suggestion types, f file, m mode, p profiles, r rules, d document, g go to view; Backspace goes up'],
     ['Space h', 'toggle a small cheat sheet of the most-used keys'],
+    ['Space t s g y r', 'show or hide spelling, grammar, style or rules suggestions; Space t a shows all'],
   ]],
   ['Modes', [
     ['i a I A o O', 'insert before, after, at line start, at line end, on a new line below, above'],
@@ -101,7 +102,7 @@ const KEYS: [string, [string, string][]][] = [
   ['Everywhere', [
     ['gt gT', 'next, previous view'],
     ['j k gg G Enter', 'move between and activate controls outside the editor; i returns to the editor'],
-    [':', 'command line: :w :saveas :e [file] :e! :recent :teacher :assistant :profile NAME :project NAME :set doctype=paper :set novim'],
+    [':', 'command line: :w :saveas :e [file] :e! :recent :teacher :assistant :profile NAME :project NAME :set doctype=paper :toggle spelling|grammar|style|rules|all :set novim'],
     ['?', 'this list'],
   ]],
 ];
@@ -259,6 +260,7 @@ export function CheatSheet() {
     ]],
     ['More', [
       ['Space', 'menu of everything else'],
+      ['SPC t', 'show or hide suggestion types'],
       [':w  :e  :recent', 'save, open, open recent'],
       ['gt', 'next view'],
     ]],

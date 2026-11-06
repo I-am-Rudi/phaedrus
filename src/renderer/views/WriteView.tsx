@@ -256,6 +256,12 @@ export function WriteView() {
   const language = app.language;
   useEffect(() => checker?.invalidate('grammar'), [checker, settings.grammar.engine, language, settings.grammar.harperDialect, settings.dictionary.length]);
   useEffect(() => checker?.setMode(settings.mode), [checker, settings.mode]);
+  useEffect(() => checker?.setShown(filters), [checker, filters]);
+  // A suggestion whose category was just switched off should not stay open.
+  useEffect(() => {
+    const e = popover ? checker?.entries.get(popover) : undefined;
+    if (e && !filters[e.category]) setPopover(null);
+  }, [filters, popover, checker]);
 
   const ordered = useMemo(() => {
     if (!checker) return [];
@@ -539,6 +545,14 @@ export function WriteView() {
           if (!known.includes(action)) return app.notify(`:issue ${known.join('|')}`);
           if (app.view !== 'write') app.go('write');
           issueRef.current(action, 1);
+        },
+        toggle: (arg) => {
+          const what = arg.trim();
+          if (what === 'all') return setFilters({ spelling: true, grammar: true, style: true, rules: true });
+          if (!(what in CATEGORY_LABEL)) return app.notify(`:toggle ${Object.keys(CATEGORY_LABEL).join('|')}|all`);
+          const c = what as Category;
+          setFilters({ ...filters, [c]: !filters[c] });
+          app.notify(`${CATEGORY_LABEL[c]} ${filters[c] ? 'hidden' : 'shown'}`);
         },
         doctype: (v) => (DOC_TYPES.includes(v as (typeof DOC_TYPES)[number]) ? setDocType(v) : app.notify(`Document types: ${DOC_TYPES.join(', ')}`)),
         __editor: () => focusEditor(),
