@@ -1,4 +1,4 @@
-appId: dev.phaedrus.app
+appId: io.github.I_am_Rudi.Phaedrus
 productName: Phaedrus
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
@@ -14,7 +14,7 @@ publish:
   provider: github
   releaseType: draft
 linux:
-  target: [AppImage, deb]
+  target: [AppImage, deb, rpm]
   category: Office
   maintainer: Rudi Siebert <k.r.siebert@icloud.com>
   icon: build/icons
@@ -22,6 +22,9 @@ mac:
   target: [dmg, zip]
   category: public.app-category.productivity
   hardenedRuntime: true
+  # Without a Developer ID certificate, sign ad hoc so Apple Silicon and Intel
+  # builds both carry a valid signature; a real identity from CSC_LINK wins.
+  identity: '-'
   icon: build/icon-mac.png
 win:
   target: nsis

@@ -53,7 +53,7 @@ Eleven themes, plus one that follows your system, each with its own underline co
 
 ## Install
 
-Download the installer for your system from the [releases page](https://github.com/I-am-Rudi/phaedrus/releases): `.dmg` for macOS, `.exe` for Windows, `.AppImage` or `.deb` for Linux. The builds are not signed yet, so macOS and Windows warn on first launch.
+Download the installer for your system from the [releases page](https://github.com/I-am-Rudi/phaedrus/releases): `.dmg` for macOS, `.exe` for Windows, `.AppImage`, `.deb` or `.rpm` for Linux. The builds are not signed yet, so macOS and Windows warn on first launch.
 
 Then:
 
