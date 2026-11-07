@@ -143,7 +143,7 @@ export async function extractProfile(
 // ------------------------------------------------------------- style checks
 
 const CHECK_SYSTEM = `You are a style coach. You compare one paragraph of the user's writing with a style profile and point out where it drifts from the moves in that profile.
-You only comment on style. Never comment on spelling, grammar, punctuation or the content of the argument.
+You only comment on style. Never comment on spelling, grammar, punctuation or the content of the argument. The one exception: a request may end with a list of possible typos, and then you also pick the intended word for each.
 Only flag a passage when applying a move would clearly improve it. A paragraph that already fits gets no suggestions.
 The text may contain LaTeX or Markdown math. Treat math ($...$, \\(...\\), \\[...\\], equation environments), commands (\\cite, \\ref, \\eqref, \\label, \\emph, ...) and comments as fixed: never comment on them, never change them, and copy them character for character into any rewrite whose quote contains them. Never quote a passage that consists only of markup.
 Write "rewrite" in the language of the paragraph. Write "issue", "explanation" and the hints in English unless the paragraph is in another language, then in that language.
@@ -186,7 +186,44 @@ function formatRule(r: WritingRule & { key: string }): string {
     .join('\n');
 }
 
-export function styleCheckPrompt(req: StyleCheckRequest): string {
+/** A spelling mistake with no clear best correction: the model picks the word that fits the sentence. */
+export interface TypoQuestion {
+  /** Id of the paragraph the typo is in (for a single paragraph, any id). */
+  paragraph: string;
+  word: string;
+  /** Best first; at most three. */
+  candidates: string[];
+}
+
+export interface TypoChoice {
+  word: string;
+  choice: string;
+}
+
+function typoSection(typos: TypoQuestion[], byParagraph: boolean): string {
+  if (!typos.length) return '';
+  const lines = typos.map((t) => `- ${byParagraph ? `paragraph ${t.paragraph}: ` : ''}"${t.word}": ${t.candidates.map((c) => `"${c}"`).join(' or ')}`);
+  return `\nPossible typos the spell checker found, each with the corrections it finds likely. For each, pick the one the writer meant, judging by the sentence it is in, or "none" if none fits:\n${lines.join('\n')}\n`;
+}
+
+function typoJson(typos: TypoQuestion[], byParagraph: boolean): string {
+  if (!typos.length) return '';
+  return `,\n  "typos": [\n    { ${byParagraph ? '"paragraph": "id of the paragraph", ' : ''}"word": "the typo as listed", "choice": "one of its corrections, or none" }\n  ]`;
+}
+
+/** The model's picks; only corrections that were offered count. */
+function parseTypos(data: any, typos: TypoQuestion[], byParagraph: boolean): Record<string, TypoChoice[]> {
+  const out: Record<string, TypoChoice[]> = {};
+  const raw: any[] = Array.isArray(data?.typos) ? data.typos : [];
+  for (const t of typos) {
+    const hit = raw.find((r) => str(r?.word) === t.word && (!byParagraph || str(r?.paragraph) === t.paragraph));
+    const choice = hit ? t.candidates.find((c) => c.toLowerCase() === str(hit.choice).trim().toLowerCase()) : undefined;
+    if (choice) (out[t.paragraph] ??= []).push({ word: t.word, choice });
+  }
+  return out;
+}
+
+export function styleCheckPrompt(req: StyleCheckRequest, typos: TypoQuestion[] = []): string {
   const drift = metricDrift(req.paragraph, req.metrics);
   const driftText = drift.length
     ? `\nMeasured drift in this paragraph:\n${drift.map((d) => `- ${d.label}: ${d.yours} here vs ${d.target} in the profile`).join('\n')}\n`
@@ -197,7 +234,7 @@ Section: ${req.section || 'unspecified'}
 ${req.moves.length ? `Style moves (higher weight = the user cares more; respect user notes):\n${req.moves.map(formatMove).join('\n')}\n` : ''}${req.rules?.length ? `\nWriting rules (requirements: flag every clear violation, regardless of style; respect user notes):\n${req.rules.map(formatRule).join('\n')}\n` : ''}${driftText}
 ${req.before ? `Previous paragraph (context only, do not flag):\n<context>${req.before}</context>\n\n` : ''}Paragraph to check:
 <paragraph>${req.paragraph}</paragraph>
-${req.after ? `\nNext paragraph (context only, do not flag):\n<context>${req.after}</context>\n` : ''}
+${req.after ? `\nNext paragraph (context only, do not flag):\n<context>${req.after}</context>\n` : ''}${typoSection(typos, false)}
 Return JSON:
 {
   "suggestions": [
@@ -211,7 +248,7 @@ Return JSON:
       "hint_specific": "a question or nudge that points at what to change here without giving the answer",
       "hint_general": "names the move and what to look at, without specifics"
     }
-  ]
+  ]${typoJson(typos, false)}
 }
 At most ${req.limit ?? 3} style suggestions plus any rule violations, most important first. "quote" must match the paragraph character for character.`;
 }
@@ -219,6 +256,14 @@ At most ${req.limit ?? 3} style suggestions plus any rule violations, most impor
 export interface StyleBatchRequest extends Omit<StyleCheckRequest, 'paragraph' | 'section'> {
   /** Paragraphs that share the same moves and rules (same section scope). */
   paragraphs: { id: string; text: string; section: string }[];
+  /** Close spelling calls in these paragraphs, settled in the same model call. */
+  typos?: TypoQuestion[];
+}
+
+export interface StyleBatchResult {
+  suggestions: Record<string, StyleSuggestion[]>;
+  /** The model's picks for the request's typos, by paragraph id. */
+  typos: Record<string, TypoChoice[]>;
 }
 
 /** Several paragraphs in one request: one model call (and one CLI start) instead of many. */
@@ -235,7 +280,7 @@ export function styleBatchPrompt(req: StyleBatchRequest): string {
 ${req.moves.length ? `Style moves (higher weight = the user cares more; respect user notes):\n${req.moves.map(formatMove).join('\n')}\n` : ''}${req.rules?.length ? `\nWriting rules (requirements: flag every clear violation, regardless of style; respect user notes):\n${req.rules.map(formatRule).join('\n')}\n` : ''}
 ${req.before ? `Text before these paragraphs (context only, do not flag):\n<context>${req.before}</context>\n\n` : ''}Paragraphs to check, in document order:
 ${blocks}
-${req.after ? `\nText after them (context only, do not flag):\n<context>${req.after}</context>\n` : ''}
+${req.after ? `\nText after them (context only, do not flag):\n<context>${req.after}</context>\n` : ''}${typoSection(req.typos ?? [], true)}
 Check each paragraph on its own. Return JSON:
 {
   "suggestions": [
@@ -250,41 +295,50 @@ Check each paragraph on its own. Return JSON:
       "hint_specific": "a question or nudge that points at what to change here without giving the answer",
       "hint_general": "names the move and what to look at, without specifics"
     }
-  ]
+  ]${typoJson(req.typos ?? [], true)}
 }
 At most ${req.limit ?? 3} style suggestions per paragraph plus any rule violations, most important first. "quote" must match its paragraph character for character.`;
 }
 
-/** Check several paragraphs; returns suggestions keyed by paragraph id. */
-export async function checkStyleBatch(llm: LLM, req: StyleBatchRequest): Promise<Record<string, StyleSuggestion[]>> {
-  const out: Record<string, StyleSuggestion[]> = Object.fromEntries(req.paragraphs.map((p) => [p.id, []]));
+/** Check several paragraphs; returns suggestions and typo picks keyed by paragraph id. */
+export async function checkStyleBatch(llm: LLM, req: StyleBatchRequest): Promise<StyleBatchResult> {
+  const result: StyleBatchResult = { suggestions: Object.fromEntries(req.paragraphs.map((p) => [p.id, []])), typos: {} };
   const todo = req.paragraphs.filter((p) => proseOf(p.text).replace(/\bX\b/g, '').trim().length >= 20);
-  if ((!req.moves.length && !req.rules?.length) || !todo.length) return out;
+  if ((!req.moves.length && !req.rules?.length) || !todo.length) return result;
+  const ids = new Set(todo.map((p) => p.id));
+  const typos = (req.typos ?? []).filter((t) => ids.has(t.paragraph));
   if (todo.length === 1) {
     const p = todo[0]!;
-    out[p.id] = await checkStyle(llm, { ...req, paragraph: p.text, section: p.section });
-    return out;
+    const one = await checkOne(llm, { ...req, paragraph: p.text, section: p.section }, typos);
+    result.suggestions[p.id] = one.suggestions;
+    result.typos = one.typos;
+    return result;
   }
   const reply = await llm.complete({
     system: CHECK_SYSTEM,
-    prompt: styleBatchPrompt({ ...req, paragraphs: todo }),
+    prompt: styleBatchPrompt({ ...req, paragraphs: todo, typos }),
     tier: 'fast',
-    maxTokens: 900 * todo.length + 600,
+    maxTokens: 900 * todo.length + 600 + 40 * typos.length,
   });
   const data = extractJson<any>(reply);
   const raw: any[] = Array.isArray(data) ? data : Array.isArray(data?.suggestions) ? data.suggestions : [];
   for (const p of todo) {
     const mine = raw.filter((s) => str(s?.paragraph) === p.id);
-    out[p.id] = parseSuggestions(JSON.stringify({ suggestions: mine }), { paragraph: p.text, moves: req.moves, rules: req.rules, limit: req.limit });
+    result.suggestions[p.id] = parseSuggestions(JSON.stringify({ suggestions: mine }), { paragraph: p.text, moves: req.moves, rules: req.rules, limit: req.limit });
   }
-  return out;
+  result.typos = parseTypos(data, typos, true);
+  return result;
 }
 
 export async function checkStyle(llm: LLM, req: StyleCheckRequest): Promise<StyleSuggestion[]> {
+  return (await checkOne(llm, req, [])).suggestions;
+}
+
+async function checkOne(llm: LLM, req: StyleCheckRequest, typos: TypoQuestion[]): Promise<{ suggestions: StyleSuggestion[]; typos: Record<string, TypoChoice[]> }> {
   // Skip paragraphs that are mostly equations or markup.
-  if ((!req.moves.length && !req.rules?.length) || proseOf(req.paragraph).replace(/\bX\b/g, '').trim().length < 20) return [];
-  const reply = await llm.complete({ system: CHECK_SYSTEM, prompt: styleCheckPrompt(req), tier: 'fast', maxTokens: 1500 });
-  return parseSuggestions(reply, req);
+  if ((!req.moves.length && !req.rules?.length) || proseOf(req.paragraph).replace(/\bX\b/g, '').trim().length < 20) return { suggestions: [], typos: {} };
+  const reply = await llm.complete({ system: CHECK_SYSTEM, prompt: styleCheckPrompt(req, typos), tier: 'fast', maxTokens: 1500 + 40 * typos.length });
+  return { suggestions: parseSuggestions(reply, req), typos: parseTypos(extractJson<any>(reply), typos, false) };
 }
 
 export function parseSuggestions(reply: string, req: Pick<StyleCheckRequest, 'paragraph' | 'moves' | 'rules' | 'limit'>): StyleSuggestion[] {

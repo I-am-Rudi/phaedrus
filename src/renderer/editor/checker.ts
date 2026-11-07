@@ -16,13 +16,22 @@ import { activeRules, type RuleEvent, type RuleSet } from '@shared/rules';
 import { proseOf } from '@shared/latex';
 import { findQuote, hash } from '@shared/spans';
 import type { Category, EditFeedback, GrammarIssue, Mode, Settings, StyleMove, StyleSuggestion, TasteProfile } from '@shared/types';
+import type { KeyboardLayout } from '@shared/spelling/keyboard';
+import { learnedPairs } from '@shared/spelling/memory';
+import { buildVocabulary, rankSpelling, type VocabularyEntry } from '@shared/spelling/rank';
+import type { StyleBatchResult, TypoChoice, TypoQuestion } from '@shared/coach';
 import { blocks, getIssues, issuesKey, type BlockInfo, type IssueMeta, type IssueRange } from './issues';
 
 export interface GrammarEntry {
   id: string;
   kind: 'grammar';
   category: 'spelling' | 'grammar';
+  /** As shown: for spelling, the replacements are ranked (see spelling/rank.ts). */
   issue: GrammarIssue;
+  /** As the engine returned it, plus the candidates added from the word list. */
+  raw: GrammarIssue;
+  /** Spelling with no clear best correction: the style pass asks the model. */
+  close?: boolean;
 }
 
 export interface StyleEntry {
@@ -63,6 +72,10 @@ export interface CheckerDeps {
   /** The project's language, or the default. */
   language(): string;
   onProfile(p: TasteProfile): void;
+  /** The keyboard the writer types on, for ranking spelling corrections. */
+  keyboard?(): KeyboardLayout;
+  /** A spelling correction was applied, to be remembered for next time. */
+  onSpellingChoice?(typo: string, word: string): void;
 }
 
 type Phase = 'idle' | 'busy' | 'error';
@@ -82,6 +95,16 @@ export class Checker {
   private appliedGrammar = new Map<number, string>();
   private appliedStyle = new Map<number, string>();
   private dismissed = new Set<string>();
+  /** Words of the document, for spelling corrections. Rebuilt after each grammar round. */
+  private vocabulary = new Map<string, VocabularyEntry>();
+  private proseCache = new Map<string, string>();
+  /** The model's pick for a close spelling call, by grammar entry id. */
+  private picks = new Map<string, string>();
+  /** The model's typo picks per style job key, like styleCache. */
+  private typoCache = new Map<string, TypoChoice[]>();
+  private pairsFor: { memory: Settings['spellingMemory'] | undefined; pairs: Map<string, number> } | null = null;
+  /** Bumped when spelling suggestions are re-ranked, so the UI redraws. */
+  spellingVersion = 0;
   /** Categories the user has switched off (chips in the panel, SPC t): their underlines are not drawn. */
   private shown: Record<Category, boolean> = { spelling: true, grammar: true, style: true, rules: true };
   private grammarGen = 0;
@@ -216,6 +239,8 @@ export class Checker {
         if (gen !== this.grammarGen) return;
         this.applyGrammar(b.text, b.index, issues, key);
       }
+      // The document's words are known now; rank its spelling suggestions with them.
+      this.rerankSpelling();
       this.grammarPhase = 'idle';
       if (this.message.startsWith('Grammar:')) this.message = '';
     } catch (e) {
@@ -245,10 +270,77 @@ export class Checker {
       if (from >= to) continue;
       // Compare against the real text later (it may contain line breaks the engine saw as spaces).
       items.push({ id, category: issue.category, from, to, text: text.slice(issue.from, issue.to), hidden: !this.shown[issue.category] });
-      this.entries.set(id, { id, kind: 'grammar', category: issue.category, issue });
+      this.entries.set(id, { id, kind: 'grammar', category: issue.category, raw: issue, ...this.rank(id, issue) });
     }
     this.appliedGrammar.set(b.index, key);
     this.dispatch({ type: 'replace', kind: 'grammar', from: b.pos, to: b.end, items });
+  }
+
+  /** Spelling: the engine's and the word list's candidates, best first. */
+  private rank(id: string, raw: GrammarIssue): { issue: GrammarIssue; close: boolean } {
+    if (raw.category !== 'spelling' || !raw.replacements.length) return { issue: raw, close: false };
+    const memory = this.deps.settings().spellingMemory;
+    if (this.pairsFor?.memory !== memory) this.pairsFor = { memory, pairs: learnedPairs(memory) };
+    const ranked = rankSpelling(raw, {
+      layout: this.deps.keyboard?.() ?? 'qwerty',
+      vocabulary: this.vocabulary,
+      memory,
+      pairs: this.pairsFor.pairs,
+      pick: this.picks.get(id),
+    });
+    return { issue: { ...raw, replacements: ranked.replacements }, close: ranked.close };
+  }
+
+  /**
+   * Rank all spelling suggestions again, with the document's current words and
+   * the remembered choices. No engine call: the candidates are kept on the entries.
+   */
+  rerankSpelling() {
+    const spelling = [...this.entries.values()].filter((e): e is GrammarEntry => e.kind === 'grammar' && e.category === 'spelling');
+    const texts = blocks(this.editor.state.doc).map((b) => {
+      let prose = this.proseCache.get(b.text);
+      if (prose === undefined) {
+        prose = proseOf(b.text);
+        this.proseCache.set(b.text, prose);
+      }
+      return prose;
+    });
+    if (this.proseCache.size > texts.length * 2 + 50) this.proseCache.clear();
+    const flagged = new Set(spelling.map((e) => e.raw.text.toLowerCase()));
+    this.vocabulary = buildVocabulary(texts, flagged, this.deps.settings().dictionary);
+    if (!spelling.length) return;
+    for (const e of spelling) Object.assign(e, this.rank(e.id, e.raw));
+    this.spellingVersion++;
+    this.emit();
+  }
+
+  /** Close spelling calls in a paragraph, for the model to settle along with the style check. */
+  private typoQuestions(text: string, paragraphId: string): TypoQuestion[] {
+    const prefix = `g:${hash(text)}:`;
+    const seen = new Set<string>();
+    const out: TypoQuestion[] = [];
+    for (const e of this.entries.values()) {
+      if (e.kind !== 'grammar' || !e.close || !e.id.startsWith(prefix) || seen.has(e.raw.text)) continue;
+      seen.add(e.raw.text);
+      out.push({ paragraph: paragraphId, word: e.raw.text, candidates: e.issue.replacements.slice(0, 3) });
+    }
+    return out;
+  }
+
+  /** The model's picks for a paragraph's close calls. Returns true if any ranking changed. */
+  private applyTypoChoices(text: string, choices: TypoChoice[]): boolean {
+    if (!choices.length) return false;
+    const prefix = `g:${hash(text)}:`;
+    let changed = false;
+    for (const e of this.entries.values()) {
+      if (e.kind !== 'grammar' || !e.id.startsWith(prefix)) continue;
+      const c = choices.find((x) => x.word === e.raw.text);
+      if (c && this.picks.get(e.id) !== c.choice) {
+        this.picks.set(e.id, c.choice);
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   // ---------------------------------------------------------------- style
@@ -316,7 +408,6 @@ export class Checker {
         const batch = batches.shift();
         if (!batch) return;
         const cached = batch.every((j) => this.styleCache.has(j.key));
-        let results: Record<string, StyleSuggestion[]> = {};
         if (!cached) {
           for (const j of batch) {
             this.pending.set(j.key, 'checking');
@@ -328,6 +419,8 @@ export class Checker {
           const last = batch.reduce((m, j) => (j.b.index > m.b.index ? j : m), batch[0]!);
           const near = (i: number) => (all[i] && all[i]!.type === 'paragraph' ? softWrap(all[i]!.text) : undefined);
           const started = performance.now();
+          const typos = batch.flatMap((j) => this.typoQuestions(j.b.text, j.key));
+          let results: StyleBatchResult;
           try {
             results = await this.deps.backend.coach.checkStyleBatch({
               paragraphs: batch.map((j) => ({ id: j.key, text: softWrap(j.b.text), section: j.section })),
@@ -337,18 +430,25 @@ export class Checker {
               rules: batch[0]!.rules,
               docType,
               metrics,
+              ...(typos.length ? { typos } : {}),
             });
           } finally {
             for (const j of batch) this.inflight.delete(j.key);
           }
           this.lastStyleMs = performance.now() - started;
-          for (const j of batch) this.styleCache.set(j.key, results[j.key] ?? []);
+          for (const j of batch) {
+            this.styleCache.set(j.key, results.suggestions[j.key] ?? []);
+            this.typoCache.set(j.key, results.typos?.[j.key] ?? []);
+          }
         }
+        let picked = false;
         for (const j of batch) {
           this.pending.delete(j.key);
           // Apply even if a newer round started: the text is matched again, so stale results never land.
           this.applyStyle(j.b.text, j.b.index, this.styleCache.get(j.key) ?? [], j.moves, j.rules, j.key);
+          if (this.applyTypoChoices(j.b.text, this.typoCache.get(j.key) ?? [])) picked = true;
         }
+        if (picked) this.rerankSpelling();
         this.emitProgress();
       }
     };
@@ -446,7 +546,9 @@ export class Checker {
   }
 
   applyReplacement(id: string, replacement: string) {
+    const e = this.entries.get(id);
     this.replace(id, replacement);
+    if (e?.kind === 'grammar' && e.category === 'spelling' && replacement.trim()) this.deps.onSpellingChoice?.(e.raw.text, replacement);
   }
 
   async accept(id: string) {
