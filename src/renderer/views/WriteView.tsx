@@ -7,6 +7,9 @@ import { DOC_TYPES, parseDocumentFull, serializeDocument, type DocBlock } from '
 import { baseLabel, baseLanguage, harperDialectFor, languageLabel, languageMatches } from '@shared/language';
 import { hintFor } from '@shared/profile/feedback';
 import type { Category, Mode, TasteProfile } from '@shared/types';
+import { layoutForLocale, type KeyboardLayout } from '@shared/spelling/keyboard';
+import { rememberChoice } from '@shared/spelling/memory';
+import { detectKeyboardLayout } from '../keyboard';
 import { Checker, type Entry, type FeedbackEntry, type StyleEntry } from '../editor/checker';
 import { BlockSeparators, blocks, IssuesExtension, LatexHeadings } from '../editor/issues';
 import { PlainTextPaste } from '../editor/paste';
@@ -68,9 +71,14 @@ export function WriteView() {
   const [popover, setPopover] = useState<string | null>(null);
   const [popoverTick, setPopoverTick] = useState(0);
 
+  // The keyboard layout ranks spelling corrections; "auto" asks the system.
+  const [detectedKeyboard, setDetectedKeyboard] = useState<KeyboardLayout>(() => layoutForLocale(navigator.language));
+  useEffect(() => void detectKeyboardLayout().then(setDetectedKeyboard), []);
+  const keyboard = settings.grammar.keyboard && settings.grammar.keyboard !== 'auto' ? settings.grammar.keyboard : detectedKeyboard;
+
   // Live values for the checker without re-creating it.
-  const live = useRef({ settings, general, project, docType, language: app.language, profileChanged: app.profileChanged });
-  live.current = { settings, general, project, docType, language: app.language, profileChanged: app.profileChanged };
+  const live = useRef({ settings, general, project, docType, language: app.language, profileChanged: app.profileChanged, keyboard, updateSettings: app.updateSettings });
+  live.current = { settings, general, project, docType, language: app.language, profileChanged: app.profileChanged, keyboard, updateSettings: app.updateSettings };
 
   const checkerRef = useRef<Checker | null>(null);
   const frameRef = useRef<Frame>({ leading: '', trailing: '\n', crlf: false });
@@ -169,6 +177,11 @@ export function WriteView() {
       paused: () => (editorRef.current ? getRevision(editorRef.current.state) : null),
       language: () => live.current.language,
       onProfile: (p) => live.current.profileChanged(p),
+      keyboard: () => live.current.keyboard,
+      onSpellingChoice: (typo, word) => {
+        const { settings: cur, updateSettings } = live.current;
+        void updateSettings({ spellingMemory: rememberChoice(cur.spellingMemory ?? {}, typo, word) });
+      },
     });
     checkerRef.current = c;
     if (mock) (window as { __checker?: Checker }).__checker = c;
@@ -245,7 +258,7 @@ export function WriteView() {
   // Re-render on checker changes.
   const version = useSyncExternalStore(
     (fn) => checker?.subscribe(fn) ?? (() => {}),
-    () => (checker ? `${checker.entries.size}:${checker.feedback.length}:${checker.grammarPhase}:${checker.stylePhase}:${checker.message}:${checker.styleProgress.waiting}/${checker.styleProgress.checking}/${checker.styleProgress.total}:${[...checker.entries.values()].map((e) => (e.kind === 'style' ? e.status : '')).join('')}` : ''),
+    () => (checker ? `${checker.entries.size}:${checker.spellingVersion}:${checker.feedback.length}:${checker.grammarPhase}:${checker.stylePhase}:${checker.message}:${checker.styleProgress.waiting}/${checker.styleProgress.checking}/${checker.styleProgress.total}:${[...checker.entries.values()].map((e) => (e.kind === 'style' ? e.status : '')).join('')}` : ''),
   );
 
   // Context changes that invalidate style results.
@@ -256,6 +269,8 @@ export function WriteView() {
   const language = app.language;
   useEffect(() => checker?.invalidate('grammar'), [checker, settings.grammar.engine, language, settings.grammar.harperDialect, settings.dictionary.length]);
   useEffect(() => checker?.setMode(settings.mode), [checker, settings.mode]);
+  // A remembered correction or another keyboard changes the order, not the findings.
+  useEffect(() => checker?.rerankSpelling(), [checker, settings.spellingMemory, keyboard]);
   useEffect(() => checker?.setShown(filters), [checker, filters]);
   // A suggestion whose category was just switched off should not stay open.
   useEffect(() => {

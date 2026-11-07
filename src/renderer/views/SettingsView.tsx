@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { LANGUAGES } from '@shared/language';
 import { THEME_OPTIONS, THEMES } from '../themes';
+import { detectKeyboardLayout } from '../keyboard';
+import type { KeyboardLayout } from '@shared/spelling/keyboard';
 import type { ProviderId, Settings } from '@shared/types';
 import { errorText, useApp, useUnsavedGuard } from '../state';
 
@@ -19,6 +21,9 @@ export function SettingsView() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => setS(settings), [settings]);
+  const [detectedKeyboard, setDetectedKeyboard] = useState<KeyboardLayout | null>(null);
+  useEffect(() => void detectKeyboardLayout().then(setDetectedKeyboard), []);
+  const learned = Object.keys(s.spellingMemory ?? {}).length;
   const dirty = JSON.stringify(s) !== JSON.stringify(settings);
   const patch = <K extends keyof Settings>(k: K, v: Partial<Settings[K]>) =>
     setS({ ...s, [k]: typeof v === 'object' && !Array.isArray(v) ? { ...(s[k] as object), ...v } : v });
@@ -169,6 +174,25 @@ export function SettingsView() {
                   {['british', 'american', 'canadian', 'australian'].map((d) => <option key={d}>{d}</option>)}
                 </select>
               </label>
+            )}
+            <label className="field">
+              Keyboard (ranks corrections for slips like y and z)
+              <select value={s.grammar.keyboard ?? 'auto'} onChange={(e) => patch('grammar', { keyboard: e.target.value as Settings['grammar']['keyboard'] })}>
+                <option value="auto">{detectedKeyboard ? `Detect (now ${detectedKeyboard.toUpperCase()})` : 'Detect'}</option>
+                <option value="qwerty">QWERTY</option>
+                <option value="qwertz">QWERTZ (German, Swiss, Central European)</option>
+                <option value="azerty">AZERTY (French, Belgian)</option>
+              </select>
+            </label>
+          </div>
+          <div className="small muted">
+            {learned
+              ? `Spelling corrections you chose before come first the next time (${learned} remembered). `
+              : 'Spelling corrections you choose are remembered and come first the next time. '}
+            {learned > 0 && (
+              <button className="btn ghost small" onClick={() => setS({ ...s, spellingMemory: {} })}>
+                Forget them
+              </button>
             )}
           </div>
           {s.grammar.engine === 'languagetool' && (

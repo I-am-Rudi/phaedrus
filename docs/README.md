@@ -42,6 +42,20 @@ The Claude CLI is called lean but with your normal login: `--system-prompt` repl
 
 Words in the Settings dictionary are never flagged as misspelled.
 
+### How spelling corrections are ranked
+
+The engines find misspellings well but rank corrections by how many letters differ, so for "zou" Harper offers "zoo" before "you". Phaedrus re-orders the list, and adds words the engine missed:
+
+- **Common words first.** Each language has a list of its 40,000 most frequent words, and "you" is far more common than "zoo".
+- **Your keyboard.** A neighbouring key, two swapped letters, a doubled letter or a letter two places off ("fomr" for "from") are likely slips; a key on the other side of the keyboard is not. On a German keyboard used as if it were a US one, y and z trade places, so "zou" is a cheap slip for "you". The layout is detected; Settings > Spelling and grammar > Keyboard sets it by hand.
+- **Words you already use.** A word used elsewhere in the document comes first for a near miss, so "Hadamrd" becomes "Hadamard" once the document uses "Hadamard" consistently.
+- **Your earlier choices.** A correction you picked comes first the next time the same typo turns up, and a slip you keep making counts as cheap for other words too. Settings shows how many are remembered and can forget them.
+- **The sentence, when it is a close call.** When two corrections are about equally likely ("fomr": from, form or for), the paragraph's style check also asks the model which one the sentence needs. This only happens when the paragraph gets a style check anyway, so it costs no extra request; without a profile or rule set the order stays as above.
+
+Words added from the frequency list are only offered if the spelling engine accepts them, since such lists also contain common misspellings like "teh". On Peter Norvig's spelling test sets from the Birkbeck corpus, the intended word came first for 80 to 84% of Harper's findings, against 70 to 71% in Harper's own order (`tests/spelling-eval.test.ts`).
+
+A word the engine does not know stays flagged even when you use it throughout the document, because a misspelling used consistently would disappear too. Add such words to the dictionary.
+
 ## Documents
 
 The editor opens and saves `.md`, `.txt` and `.tex` as plain text, in place, like any text editor. Formatting markup stays as literal text.
@@ -238,5 +252,6 @@ Settings > Appearance offers System (follows the OS light or dark setting), Ligh
 ## Third-party material
 
 - The built-in *Signs of AI writing* rule set (`src/shared/defaults/aiTells.ts`) is adapted from Wikipedia's [Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) by WikiProject AI Cleanup and contributors, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), which permits its use in GPLv3-licensed software.
+- The word frequency lists in `src/shared/spelling/wordfreq/` are exported from Robyn Speer's [wordfreq](https://github.com/rspeer/wordfreq) and licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). They contain data derived from Google Books Ngrams, the Leeds Internet Corpus, Wikipedia, ParaCrawl, OpenSubtitles and the SUBTLEX lists by Marc Brysbaert et al.; the [README there](../src/shared/spelling/wordfreq/README.md) has the full credits.
 - The bundled Fira Sans and Source Serif 4 fonts are under the SIL Open Font License 1.1. The logo is the letter P from Source Serif 4.
 - Dependencies keep their own licenses (MIT, Apache-2.0, ISC). LanguageTool (LGPL) and the Claude and Codex command-line tools are separate programs that Phaedrus talks to; they are not part of it.

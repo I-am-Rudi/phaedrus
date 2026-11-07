@@ -1,5 +1,7 @@
 // Core data model shared by the main process, the renderer and the tests.
 
+import type { KeyboardLayout } from './spelling/keyboard';
+
 export type Category = 'spelling' | 'grammar' | 'style' | 'rules';
 export type Mode = 'assistant' | 'teacher';
 
@@ -102,6 +104,10 @@ export interface GrammarIssue {
   replacements: string[];
   ruleId: string;
   engine: 'languagetool' | 'harper';
+  /** Spelling: how many of `replacements` came from the engine; the rest were added from the word list. */
+  engineCount?: number;
+  /** Spelling: Zipf frequency of each replacement, null if it is not in the word list. */
+  zipf?: (number | null)[];
 }
 
 /** A style suggestion from the LLM, anchored by quoted text rather than offsets. */
@@ -160,6 +166,8 @@ export interface Settings {
     /** Default language; a project profile's language overrides it. */
     language: string;
     harperDialect: 'american' | 'british' | 'australian' | 'canadian';
+    /** Keyboard used for typing; "auto" asks the system. Ranks corrections for slips like y/z. */
+    keyboard: 'auto' | KeyboardLayout;
   };
   /** Folder holding profile .md files; can be shared with other tools. */
   profilesDir: string;
@@ -172,6 +180,8 @@ export interface Settings {
   rulesByProject: Record<string, string[]>;
   mode: Mode;
   dictionary: string[];
+  /** Spelling corrections chosen before: typo -> word -> times (lower case). */
+  spellingMemory: Record<string, Record<string, number>>;
   /** Colour theme id (see themes.ts) or "system". */
   theme: string;
   /** Vim keybindings in the editor and across the app. */

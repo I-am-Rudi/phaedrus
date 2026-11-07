@@ -5,7 +5,7 @@ import type { DiffEntry } from './profile/diff';
 import type { ExcerptPolicy } from './profile/exchange';
 import type { ProfileEvent } from './profile/feedback';
 import type { RuleEvent, RuleSet, WritingRule } from './rules';
-import type { EditFeedbackRequest, StyleBatchRequest, StyleCheckRequest } from './coach';
+import type { EditFeedbackRequest, StyleBatchRequest, StyleBatchResult, StyleCheckRequest } from './coach';
 import type {
   BlendConflict,
   EditFeedback,
@@ -101,7 +101,7 @@ export interface Backend {
     extract(sources: SourceDoc[], name: string, kind: TasteProfile['kind'], language?: string): Promise<TasteProfile>;
     diff(current: TasteProfile, incoming: TasteProfile): Promise<DiffEntry[]>;
     checkStyle(req: StyleCheckRequest): Promise<StyleSuggestion[]>;
-    checkStyleBatch(req: StyleBatchRequest): Promise<Record<string, StyleSuggestion[]>>;
+    checkStyleBatch(req: StyleBatchRequest): Promise<StyleBatchResult>;
     editFeedback(req: EditFeedbackRequest): Promise<EditFeedback>;
     blendConflicts(profile: TasteProfile): Promise<BlendConflict[]>;
   };

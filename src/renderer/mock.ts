@@ -4,6 +4,8 @@
 
 import type { AppEvents, Backend, ProfileSummary, Snapshot } from '@shared/api';
 import { checkStyle, checkStyleBatch, editFeedback, extractProfile, extractRules, findBlendConflicts, type LLM } from '@shared/coach';
+import { expandSpelling } from '@shared/spelling/candidates';
+import { harperAccepts } from '@shared/spelling/harper';
 import { applyRuleEvent, newRule, newRuleSet, parseRuleSet, serializeRuleSet, type RuleSet } from '@shared/rules';
 import { harperDialectFor } from '@shared/language';
 import { AI_TELLS_ID, aiTellsRuleSet } from '@shared/defaults/aiTells';
@@ -193,7 +195,7 @@ async function harperRaw(text: string): Promise<GrammarIssue[]> {
   })();
   const linter = await harperLinter;
   const lints = await linter.lint(text, { language: 'plaintext' });
-  return lints
+  const issues: GrammarIssue[] = lints
     .filter((l: any) => !['Style', 'Readability', 'Enhancement', 'WordChoice', 'Regionalism'].includes(l.lint_kind()))
     .map((l: any) => ({
       category: ['Spelling', 'Typo'].includes(l.lint_kind()) ? 'spelling' : 'grammar',
@@ -205,6 +207,7 @@ async function harperRaw(text: string): Promise<GrammarIssue[]> {
       ruleId: l.lint_kind(),
       engine: 'harper',
     }));
+  return expandSpelling(issues, 'en', (words) => harperAccepts(linter, words));
 }
 
 export function createMockBackend(): Backend {
@@ -229,7 +232,7 @@ export function createMockBackend(): Backend {
     openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1', fastModel: '', strongModel: '' },
     claudeCli: { binary: 'claude', fastModel: 'haiku', strongModel: 'sonnet' },
     codexCli: { binary: 'codex', model: '' },
-    grammar: { engine: 'harper', languageToolUrl: 'http://localhost:8081', language: 'auto', harperDialect: 'british' },
+    grammar: { engine: 'harper', languageToolUrl: 'http://localhost:8081', language: 'auto', harperDialect: 'british', keyboard: 'auto' },
     profilesDir: '(in memory)',
     activeGeneralProfile: null,
     generalByLanguage: { en: 'plain-physics' },
@@ -237,6 +240,7 @@ export function createMockBackend(): Backend {
     rulesByProject: { thesis: ['thesis-rules'] },
     mode: 'assistant',
     dictionary: [],
+    spellingMemory: {},
     theme: 'system',
     vim: false,
     vimEscape: { sequence: '', timeoutMs: 300, ctrlC: true },

@@ -156,9 +156,60 @@ describe('batched style checks', () => {
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain('<paragraph id="a" section="Intro">');
-    expect(out.a!.map((s) => s.quote)).toEqual(['In this paragraph we will now discuss']);
-    expect(out.b!.map((s) => s.quote)).toEqual(['Then we compute']);
-    expect(out.c).toEqual([]);
+    expect(out.suggestions.a!.map((s) => s.quote)).toEqual(['In this paragraph we will now discuss']);
+    expect(out.suggestions.b!.map((s) => s.quote)).toEqual(['Then we compute']);
+    expect(out.suggestions.c).toEqual([]);
+    expect(out.typos).toEqual({});
+    expect(calls[0]).not.toContain('Possible typos');
+  });
+
+  it('settles close spelling calls in the same request', async () => {
+    const { checkStyleBatch } = await import('@shared/coach');
+    const moves = [newMove({ title: 'Short openers', description: 'Open with a short claim.' })];
+    const calls: string[] = [];
+    const llm: LLM = {
+      complete: async (r) => {
+        calls.push(r.prompt);
+        return JSON.stringify({
+          suggestions: [],
+          typos: [
+            { paragraph: 'a', word: 'fomr', choice: 'from' },
+            { paragraph: 'b', word: 'lable', choice: 'cable' }, // not offered: ignored
+            { paragraph: 'b', word: 'thsi', choice: 'none' },
+          ],
+        });
+      },
+    };
+    const out = await checkStyleBatch(llm, {
+      paragraphs: [
+        { id: 'a', text: 'We moved fomr Jena to Geneva for the exchange year last spring.', section: '' },
+        { id: 'b', text: 'Every lable on the axes has to be readable at column width.', section: '' },
+      ],
+      moves,
+      docType: 'paper',
+      typos: [
+        { paragraph: 'a', word: 'fomr', candidates: ['form', 'for', 'from'] },
+        { paragraph: 'b', word: 'lable', candidates: ['label', 'able', 'table'] },
+        { paragraph: 'b', word: 'thsi', candidates: ['this', 'thai'] },
+        { paragraph: 'gone', word: 'zou', candidates: ['you', 'zoo'] }, // paragraph not in the request
+      ],
+    });
+    expect(calls[0]).toContain('paragraph a: "fomr": "form" or "for" or "from"');
+    expect(calls[0]).not.toContain('"zou"');
+    expect(calls[0]).toContain('"typos"');
+    expect(out.typos).toEqual({ a: [{ word: 'fomr', choice: 'from' }] });
+  });
+
+  it('settles typos in the single-paragraph request too', async () => {
+    const { checkStyleBatch } = await import('@shared/coach');
+    const llm: LLM = { complete: async () => '{"suggestions":[],"typos":[{"word":"fomr","choice":"From"}]}' };
+    const out = await checkStyleBatch(llm, {
+      paragraphs: [{ id: 'a', text: 'We moved fomr Jena to Geneva for the exchange year last spring.', section: '' }],
+      moves: [newMove({ title: 'x' })],
+      docType: '',
+      typos: [{ paragraph: 'a', word: 'fomr', candidates: ['form', 'for', 'from'] }],
+    });
+    expect(out.typos).toEqual({ a: [{ word: 'fomr', choice: 'from' }] });
   });
 
   it('uses the single-paragraph prompt for one paragraph', async () => {
