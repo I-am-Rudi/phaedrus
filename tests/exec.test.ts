@@ -32,6 +32,20 @@ describe.skipIf(process.platform === 'win32')('finding the CLIs from a GUI launc
     expect((await run('fakecli', [])).stdout.trim()).toBe('ok');
   });
 
+  it('survives a CLI that exits without reading its input', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'phaedrus-epipe-'));
+    const quitter = join(dir, 'quitter');
+    writeFileSync(quitter, '#!/bin/sh\necho "usage: quitter" >&2\nexit 2\n');
+    chmodSync(quitter, 0o755);
+    process.env.SHELL = '/nonexistent/shell';
+    const { run } = await import('../src/main/exec');
+    // 4 MB is far more than a pipe buffer holds, so the write is still going
+    // when the process has exited and the pipe is closed.
+    const res = await run(quitter, [], { input: 'x'.repeat(4 * 1024 * 1024) });
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain('usage: quitter');
+  });
+
   it('keeps the bare name when nothing is found, and leaves explicit paths alone', async () => {
     process.env.SHELL = '/nonexistent/shell';
     const { resolveBinary } = await import('../src/main/exec');

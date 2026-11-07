@@ -110,6 +110,11 @@ export async function run(
       clearTimeout(timer);
       resolve({ code, stdout, stderr });
     });
+    // A CLI that exits before reading its input (a crash, a usage error, a
+    // version check) closes the pipe, and the write fails with EPIPE. Without a
+    // handler that error is uncaught and takes down the main process; the exit
+    // code and stderr already tell the caller what went wrong.
+    child.stdin.on('error', () => {});
     child.stdin.end(opts.input ?? '');
   });
 }
