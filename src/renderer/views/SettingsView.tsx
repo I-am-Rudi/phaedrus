@@ -127,6 +127,10 @@ export function SettingsView() {
               <label className="field">API key (empty for local servers)<input type="password" value={s.openai.apiKey} onChange={(e) => patch('openai', { apiKey: e.target.value })} /></label>
               <label className="field">Model for checks<input type="text" value={s.openai.fastModel} placeholder="required" onChange={(e) => patch('openai', { fastModel: e.target.value })} /></label>
               <label className="field">Model for extraction<input type="text" value={s.openai.strongModel} placeholder="defaults to the check model" onChange={(e) => patch('openai', { strongModel: e.target.value })} /></label>
+              <label className="field">
+                Parallel requests (lower for shared servers)
+                <input type="number" min={1} max={8} value={s.openai.parallel ?? 4} onChange={(e) => patch('openai', { parallel: Math.max(1, Math.min(8, Number(e.target.value) || 1)) })} />
+              </label>
             </div>
           )}
           <div className="row">

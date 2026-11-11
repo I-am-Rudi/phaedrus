@@ -2,9 +2,9 @@ import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkGrammar } from '../src/main/grammar';
-import { createLLM } from '../src/main/providers';
+import { createLLM, errorReason, RETRY_DELAYS_MS } from '../src/main/providers';
 import { defaultSettings, Store } from '../src/main/store';
 import { newMove, newProfile } from '@shared/profile/model';
 
@@ -148,5 +148,73 @@ echo '{"ok": true}' > "$out"`,
     const settings = { ...defaultSettings(dir), provider: 'codex-cli' as const };
     settings.codexCli = { binary: fake, model: '' };
     expect((await createLLM(settings, dir).complete({ system: 's', prompt: 'p', tier: 'strong' })).trim()).toBe('{"ok": true}');
+  });
+});
+
+describe('OpenAI-compatible endpoints', () => {
+  /** A stand-in server: each request gets the next canned reply; the last one repeats. */
+  async function serve(replies: { status: number; body: string; type?: string; headers?: Record<string, string> }[]) {
+    let n = 0;
+    const server = createServer((_req, res) => {
+      const r = replies[Math.min(n++, replies.length - 1)]!;
+      res.writeHead(r.status, { 'content-type': r.type ?? 'application/json', ...r.headers });
+      res.end(r.body);
+    });
+    await new Promise<void>((ok) => server.listen(0, ok));
+    const settings = defaultSettings(dir);
+    settings.provider = 'openai';
+    settings.openai = { ...settings.openai, baseUrl: `http://127.0.0.1:${(server.address() as any).port}/v1/`, fastModel: 'qwen' };
+    return { llm: createLLM(settings, dir), requests: () => n, close: () => server.close() };
+  }
+  const ask = (llm: ReturnType<typeof createLLM>) => llm.complete({ system: 's', prompt: 'p', tier: 'fast' });
+  const ok = { status: 200, body: JSON.stringify({ choices: [{ message: { content: 'fine' } }] }) };
+  const nginx503 = { status: 503, type: 'text/html', body: '<html><head><title>503 Service Temporarily Unavailable</title></head><body><center><h1>503 Service Temporarily Unavailable</h1></center><hr><center>nginx</center></body></html>' };
+  const saved = [...RETRY_DELAYS_MS];
+  beforeAll(() => RETRY_DELAYS_MS.splice(0, RETRY_DELAYS_MS.length, 5, 10));
+  afterAll(() => RETRY_DELAYS_MS.splice(0, RETRY_DELAYS_MS.length, ...saved));
+
+  it('retries a brief 503 and succeeds', async () => {
+    const s = await serve([nginx503, { ...nginx503, headers: { 'retry-after': '0' } }, ok]);
+    expect(await ask(s.llm)).toBe('fine');
+    expect(s.requests()).toBe(3);
+    s.close();
+  });
+
+  it("shows a gateway's HTML reason after three tries, with a hint", async () => {
+    const s = await serve([nginx503]);
+    const err = await ask(s.llm).catch((e: Error) => e.message);
+    s.close();
+    expect(err).toMatch(/\/v1\/chat\/completions → 503: 503 Service Temporarily Unavailable/);
+    expect(err).toContain('nginx');
+    expect(err).toContain('tried 3 times');
+    expect(err).toContain('GPUStack');
+    expect(s.requests()).toBe(3);
+  });
+
+  it("shows GPUStack's reasons in both of its formats", async () => {
+    let s = await serve([{ status: 503, body: JSON.stringify({ error: { message: 'No running instances available', code: 503, type: 'ServiceUnavailable' } }) }]);
+    expect(await ask(s.llm).catch((e: Error) => e.message)).toContain('No running instances available');
+    s.close();
+    s = await serve([{ status: 503, body: JSON.stringify({ code: 503, reason: 'Service Unavailable', message: 'Worker 3 is not ready' }) }]);
+    expect(await ask(s.llm).catch((e: Error) => e.message)).toContain('Worker 3 is not ready');
+    s.close();
+  });
+
+  it('does not retry other errors, and hints at the likely fix', async () => {
+    const s = await serve([{ status: 404, body: '{"detail":"Not Found"}' }]);
+    const err = await ask(s.llm).catch((e: Error) => e.message);
+    expect(s.requests()).toBe(1);
+    s.close();
+    expect(err).toContain('404: Not Found. Check the base URL');
+  });
+
+  it('reads the reason from any common error format', () => {
+    expect(errorReason('{"error":{"message":"bad key"}}')).toBe('bad key');
+    expect(errorReason('{"error":"bad key"}')).toBe('bad key');
+    expect(errorReason('{"message":"Worker not ready"}')).toBe('Worker not ready');
+    expect(errorReason('{"detail":[{"loc":["body","model"],"msg":"field required"}]}')).toContain('field required');
+    expect(errorReason('<html><style>p{}</style><p>Down&nbsp;for maintenance</p></html>')).toBe('Down for maintenance');
+    expect(errorReason('{}')).toBe('');
+    expect(errorReason('')).toBe('');
   });
 });

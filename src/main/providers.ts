@@ -26,22 +26,77 @@ export function createLLM(settings: Settings, workDir: string): LLM {
 /** Fold the system prompt into the user prompt for backends without a separate system field. */
 const combined = (r: LLMRequest) => `${r.system}\n\n---\n\n${r.prompt}`;
 
+/** Rate limits, and servers or gateways that are briefly unavailable (529: Anthropic overloaded). */
+const TRANSIENT = new Set([429, 502, 503, 504, 529]);
+export const RETRY_DELAYS_MS = [1500, 4000];
+
+/** POST JSON; on a transient status, wait (Retry-After if given, at most 20 s) and try again, twice. */
+async function postJson(url: string, headers: Record<string, string>, body: unknown, delays = RETRY_DELAYS_MS): Promise<{ res: Response; text: string; tries: number }> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    const text = await res.text().catch(() => '');
+    if (!TRANSIENT.has(res.status) || attempt >= delays.length) return { res, text, tries: attempt + 1 };
+    const after = Number(res.headers.get('retry-after'));
+    const wait = Number.isFinite(after) && after > 0 ? Math.min(after * 1000, 20_000) : delays[attempt]!;
+    await new Promise((r) => setTimeout(r, wait));
+  }
+}
+
+const parseJson = (text: string): any => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The server's reason for an error, whichever format it uses: OpenAI and
+ * Anthropic ({error: {message}}), GPUStack's other routes ({message}),
+ * FastAPI ({detail}), or the start of an HTML or text page from a gateway.
+ */
+export function errorReason(text: string): string {
+  const b = parseJson(text);
+  const detail = b?.detail === undefined ? undefined : typeof b.detail === 'string' ? b.detail : JSON.stringify(b.detail);
+  const picked = b?.error?.message ?? (typeof b?.error === 'string' ? b.error : undefined) ?? b?.message ?? detail;
+  if (picked) return String(picked).trim().slice(0, 300);
+  if (b !== undefined) return '';
+  return text
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
+
+function httpError(label: string, res: Response, text: string, tries: number): Error {
+  const reason = errorReason(text) || res.statusText || 'no reason given';
+  let hint = '';
+  if ([502, 503, 504, 529].includes(res.status))
+    hint = ` The server, or a gateway in front of it, is not ready (tried ${tries} times). On a server that loads models on demand, such as GPUStack, check that the model has a running instance; on a shared server, try fewer parallel requests in Settings.`;
+  else if (res.status === 429) hint = ` Too many requests (tried ${tries} times); try fewer parallel requests in Settings.`;
+  else if (res.status === 401 || res.status === 403) hint = ' Check the API key.';
+  else if (res.status === 404) hint = ' Check the base URL (it usually ends in /v1) and the model name.';
+  return new Error(`${label} → ${res.status}: ${reason}.${hint}`);
+}
+
 function anthropic(cfg: Settings['anthropic']): LLM {
   return {
     async complete(r) {
       if (!cfg.apiKey) throw new Error('Add an Anthropic API key in Settings.');
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
+      const { res, text, tries } = await postJson(
+        'https://api.anthropic.com/v1/messages',
+        { 'content-type': 'application/json', 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' },
+        {
           model: r.tier === 'strong' ? cfg.strongModel : cfg.fastModel,
           max_tokens: r.maxTokens ?? 2000,
           system: r.system,
           messages: [{ role: 'user', content: r.prompt }],
-        }),
-      });
-      const body: any = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${body?.error?.message ?? res.statusText}`);
+        },
+      );
+      if (!res.ok) throw httpError('Anthropic API', res, text, tries);
+      const body = parseJson(text) ?? {};
       return (body.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('');
     },
   };
@@ -55,19 +110,16 @@ function openaiCompatible(cfg: Settings['openai']): LLM {
       const url = `${cfg.baseUrl.replace(/\/+$/, '')}/chat/completions`;
       const headers: Record<string, string> = { 'content-type': 'application/json' };
       if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: r.system },
-            { role: 'user', content: r.prompt },
-          ],
-        }),
+      const { res, text, tries } = await postJson(url, headers, {
+        model,
+        messages: [
+          { role: 'system', content: r.system },
+          { role: 'user', content: r.prompt },
+        ],
       });
-      const body: any = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(`${url} → ${res.status}: ${body?.error?.message ?? res.statusText}`);
+      if (!res.ok) throw httpError(url, res, text, tries);
+      const body = parseJson(text);
+      if (body === undefined) throw new Error(`${url} answered with something other than JSON: ${errorReason(text) || 'an empty reply'}. Check the base URL.`);
       return body.choices?.[0]?.message?.content ?? '';
     },
   };
