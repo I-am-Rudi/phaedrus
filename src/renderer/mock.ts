@@ -229,7 +229,7 @@ export function createMockBackend(): Backend {
   let settings: Settings = {
     provider: 'claude-cli',
     anthropic: { apiKey: '', fastModel: 'claude-haiku-5-5', strongModel: 'claude-sonnet-5-5' },
-    openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1', fastModel: '', strongModel: '' },
+    openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1', fastModel: '', strongModel: '', parallel: 4 },
     claudeCli: { binary: 'claude', fastModel: 'haiku', strongModel: 'sonnet' },
     codexCli: { binary: 'codex', model: '' },
     grammar: { engine: 'harper', languageToolUrl: 'http://localhost:8081', language: 'auto', harperDialect: 'british', keyboard: 'auto' },

@@ -157,7 +157,14 @@ export interface Settings {
   provider: ProviderId;
   anthropic: { apiKey: string; fastModel: string; strongModel: string };
   /** Any OpenAI-compatible endpoint: OpenAI, OpenRouter, Groq, Ollama, ... */
-  openai: { apiKey: string; baseUrl: string; fastModel: string; strongModel: string };
+  openai: {
+    apiKey: string;
+    baseUrl: string;
+    fastModel: string;
+    strongModel: string;
+    /** Style checks sent at once; lower it for shared servers that limit requests. */
+    parallel?: number;
+  };
   claudeCli: { binary: string; fastModel: string; strongModel: string };
   codexCli: { binary: string; model: string };
   grammar: {

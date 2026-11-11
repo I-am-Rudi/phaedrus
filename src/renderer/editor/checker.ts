@@ -401,7 +401,8 @@ export class Checker {
     this.emitProgress();
 
     const metrics = general?.metrics ?? project?.metrics ?? always[0]?.metrics;
-    const concurrency = this.deps.settings().provider.endsWith('-cli') ? 3 : 4;
+    const settings = this.deps.settings();
+    const concurrency = settings.provider.endsWith('-cli') ? 3 : settings.provider === 'openai' ? Math.max(1, Math.min(8, settings.openai.parallel ?? 4)) : 4;
     const worker = async () => {
       for (;;) {
         if (gen !== this.styleGen || this.destroyed) return;
