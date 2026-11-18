@@ -4,6 +4,10 @@ import { diffRules, mergeRuleDiff, mergeRules, newRule, newRuleSet, type RuleDif
 import type { SourceDoc } from '@shared/types';
 import { AlwaysOnSwitch } from '../AlwaysOn';
 import { SourcesEditor } from '../Sources';
+import { jobs, useJobs } from '../jobs';
+import { JobProgress } from '../JobsUi';
+
+type RuleResult = { kind: 'add'; rules: (WritingRule & { pick: boolean })[] } | { kind: 'compare'; entries: RuleDiffEntry[] };
 import { errorText, plural, useApp, useUnsavedGuard } from '../state';
 
 export function RulesView() {
@@ -33,6 +37,25 @@ export function RulesView() {
   const dirty = !!draft && JSON.stringify(draft) !== saved;
   const set = (patch: Partial<RuleSet>) => draft && setDraft({ ...draft, ...patch });
   const confirmLeave = useUnsavedGuard('rules', 'rules', dirty, `Save changes to ${draft?.name ?? 'the rule set'}?`, () => save());
+  // The top bar asks for a rule set whose extraction is running or ready.
+  const focusReq = useJobs().focusRequest;
+  useEffect(() => {
+    const id = focusReq?.key.startsWith('rules:') ? focusReq.key.slice('rules:'.length) : null;
+    if (!id) return;
+    const reveal = () => requestAnimationFrame(() => document.getElementById('learn-rules')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    if (id === activeId) return void reveal();
+    if (!app.ruleSummaries.some((x) => x.id === id)) {
+      jobs.clear(focusReq!.key);
+      app.notify('That rule set no longer exists.');
+      return;
+    }
+    void confirmLeave().then((ok) => {
+      if (!ok) return;
+      setActiveId(id);
+      window.setTimeout(reveal, 300);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusReq?.n]);
   const saveRef = useRef(() => save());
   saveRef.current = () => save();
   useEffect(() => app.registerCommands({ w: () => void saveRef.current() }, 'rules'), [app.registerCommands]);
@@ -247,34 +270,40 @@ function ExtractRules({ set, onAdd, onMerge }: {
   onMerge(entries: RuleDiffEntry[], sources: { title: string }[]): void;
 }) {
   const { backend } = useApp();
-  const [docs, setDocs] = useState<SourceDoc[]>([]);
-  const [found, setFound] = useState<(WritingRule & { pick: boolean })[] | null>(null);
-  const [diff, setDiff] = useState<RuleDiffEntry[] | null>(null);
-  const [busy, setBusy] = useState<'add' | 'compare' | null>(null);
-  const [error, setError] = useState('');
+  // Documents, the running extraction and its result live in the job store,
+  // so they survive leaving this pane or opening another rule set.
+  const store = useJobs();
+  const key = `rules:${set.id}`;
+  const docs = store.sources(key);
+  const setDocs = (d: SourceDoc[]) => store.setSources(key, d);
+  const job = store.get<RuleResult>(key);
+  const busy = job?.status === 'running' ? job.mode : null;
+  const error = job?.status === 'error' ? job.error : '';
+  const result = job?.status === 'done' ? job.result : undefined;
+  const found = result?.kind === 'add' ? result.rules : null;
+  const diff = result?.kind === 'compare' ? result.entries : null;
+  const setFound = (rules: (WritingRule & { pick: boolean })[] | null) => (rules ? store.updateResult(key, { kind: 'add', rules }) : store.clear(key));
+  const setDiff = (entries: RuleDiffEntry[] | null) => (entries ? store.updateResult(key, { kind: 'compare', entries }) : store.clear(key));
   const ready = docs.some((d) => d.text.trim());
   const sources = () => docs.map((d) => ({ title: d.name }));
+  const done = () => {
+    store.clear(key);
+    store.setSources(key, []);
+  };
 
-  async function run(kind: 'add' | 'compare') {
-    setBusy(kind);
-    setError('');
-    setFound(null);
-    setDiff(null);
-    try {
-      const text = docs.filter((d) => d.text.trim());
+  function run(kind: 'add' | 'compare') {
+    const text = docs.filter((d) => d.text.trim());
+    const snapshot = set;
+    store.start<RuleResult>({ key, view: 'rules', targetId: set.id, label: `Rules for ${set.name || 'rule set'}`, mode: kind }, 'rule-extraction', async (stage) => {
+      stage(`The model is reading ${plural(text.length, 'document')}`);
       // Adding: tell the model what the set has so it looks for the rest. Comparing: extract afresh.
-      const rules = await backend.coach.extractRules(text, kind === 'add' ? set.rules.map((r) => r.id) : []);
-      if (kind === 'add') setFound(rules.map((r) => ({ ...r, pick: true })));
-      else setDiff(diffRules(set, rules));
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(null);
-    }
+      const rules = await backend.coach.extractRules(text, kind === 'add' ? snapshot.rules.map((r) => r.id) : []);
+      return kind === 'add' ? { kind, rules: rules.map((r) => ({ ...r, pick: true })) } : { kind, entries: diffRules(snapshot, rules) };
+    });
   }
 
   return (
-    <div className="section">
+    <div className="section" id="learn-rules">
       <h2>Learn rules from documents</h2>
       <p className="small muted" style={{ margin: 0 }}>
         For documents that state rules: a journal's author guide, a style guide, your supervisor's comments. Only rules the documents state are extracted, not their own style.{' '}
@@ -282,12 +311,18 @@ function ExtractRules({ set, onAdd, onMerge }: {
       </p>
       <SourcesEditor sources={docs} setSources={setDocs} withAuthor={false} placeholder="Paste the rules document" />
       <div className="row">
-        <button className="btn primary" disabled={!!busy || !ready} onClick={() => void run('add')}>{busy === 'add' ? 'Extracting…' : 'Add rules'}</button>
+        <button className="btn primary" disabled={!!busy || !ready} onClick={() => run('add')}>{busy === 'add' ? 'Extracting…' : 'Add rules'}</button>
         {set.rules.length > 0 && (
-          <button className="btn" disabled={!!busy || !ready} onClick={() => void run('compare')}>{busy === 'compare' ? 'Extracting…' : 'Re-extract and compare'}</button>
+          <button className="btn" disabled={!!busy || !ready} onClick={() => run('compare')}>{busy === 'compare' ? 'Extracting…' : 'Re-extract and compare'}</button>
         )}
-        {error && <span className="error">{error}</span>}
+        {error && (
+          <>
+            <span className="error">{error}</span>
+            <button className="btn ghost small" onClick={() => store.clear(key)}>Dismiss</button>
+          </>
+        )}
       </div>
+      {job?.status === 'running' && <JobProgress job={job} />}
       {found && (
         <>
           {found.map((r, i) => (
@@ -306,8 +341,7 @@ function ExtractRules({ set, onAdd, onMerge }: {
               disabled={!found.some((r) => r.pick)}
               onClick={() => {
                 onAdd(found.filter((r) => r.pick).map(({ pick: _p, ...r }) => r), sources());
-                setFound(null);
-                setDocs([]);
+                done();
               }}
             >
               Add {plural(found.filter((r) => r.pick).length, 'rule')}
@@ -341,8 +375,7 @@ function ExtractRules({ set, onAdd, onMerge }: {
               className="btn primary"
               onClick={() => {
                 onMerge(diff, sources());
-                setDiff(null);
-                setDocs([]);
+                done();
               }}
             >
               Merge selected

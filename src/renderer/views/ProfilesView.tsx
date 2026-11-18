@@ -8,6 +8,8 @@ import { newMove, newProfile } from '@shared/profile/model';
 import type { Example, HintLevel, SourceDoc, StyleMove, TasteProfile } from '@shared/types';
 import { AlwaysOnSwitch } from '../AlwaysOn';
 import { SourcesEditor } from '../Sources';
+import { jobs, useJobs } from '../jobs';
+import { JobProgress } from '../JobsUi';
 import { errorText, plural, useApp, useUnsavedGuard } from '../state';
 
 const HINT_LABELS: Record<HintLevel, string> = {
@@ -63,6 +65,19 @@ export function ProfilesView() {
     }
   }
   const confirmLeave = useUnsavedGuard('profile', 'profiles', !!dirty, `Save changes to ${draft?.name ?? 'the profile'}?`, () => save());
+  // The top bar asks for a profile whose extraction is running or ready.
+  const focusReq = useJobs().focusRequest;
+  useEffect(() => {
+    const id = focusReq?.key.startsWith('profiles:') ? focusReq.key.slice('profiles:'.length) : null;
+    if (!id || id === activeId) return;
+    if (!summaries.some((x) => x.id === id)) {
+      jobs.clear(focusReq!.key);
+      app.notify('That profile no longer exists.');
+      return;
+    }
+    void confirmLeave().then((ok) => ok && setActiveId(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusReq?.n]);
   const saveRef = useRef(save);
   saveRef.current = save;
   useEffect(() => app.registerCommands({ w: () => void saveRef.current() }, 'profiles'), [app.registerCommands]);
@@ -172,7 +187,13 @@ function ProfileEditor({ draft, setDraft, dirty, onSave, onApply, onRevert, onDe
   const app = useApp();
   const [open, setOpen] = useState<string | null>(null);
   // A new, empty profile opens on its sources: that is where its moves come from.
-  const [panel, setPanel] = useState<'moves' | 'sources' | 'history' | 'export'>(draft.moves.length ? 'moves' : 'sources');
+  const store = useJobs();
+  const [panel, setPanel] = useState<'moves' | 'sources' | 'history' | 'export'>(draft.moves.length && !store.get(`profiles:${draft.id}`) ? 'moves' : 'sources');
+  // Clicking this profile's extraction in the top bar opens its sources tab.
+  const focus = store.focusRequest;
+  useEffect(() => {
+    if (focus?.key === `profiles:${draft.id}`) setPanel('sources');
+  }, [focus?.n, focus?.key, draft.id]);
   const set = (patch: Partial<TasteProfile>) => setDraft({ ...draft, ...patch });
   const setMove = (id: string, patch: Partial<StyleMove>) => set({ moves: draft.moves.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
   const usedFor = baseLanguage(draft.language);
@@ -480,29 +501,33 @@ type Found =
  */
 function LearnFromSources({ draft, onApply }: { draft: TasteProfile; onApply(p: TasteProfile, reason: string): Promise<void> }) {
   const { backend } = useApp();
-  const [sources, setSources] = useState<SourceDoc[]>([]);
-  const [busy, setBusy] = useState<'add' | 'compare' | null>(null);
-  const [error, setError] = useState('');
-  const [found, setFound] = useState<Found | null>(null);
+  // Sources, the running extraction and its result live in the job store, so
+  // they survive leaving this pane or switching to another profile.
+  const store = useJobs();
+  const key = `profiles:${draft.id}`;
+  const sources = store.sources(key);
+  const setSources = (docs: SourceDoc[]) => store.setSources(key, docs);
+  const job = store.get<Found>(key);
+  const busy = job?.status === 'running' ? job.mode : null;
+  const error = job?.status === 'error' ? job.error : '';
+  const found = job?.status === 'done' ? (job.result ?? null) : null;
+  const setFound = (f: Found | null) => (f ? store.updateResult(key, f) : store.clear(key));
   const empty = !draft.moves.length;
   const ready = sources.some((s) => s.text.trim());
 
-  async function run(kind: 'add' | 'compare') {
-    setBusy(kind);
-    setError('');
-    setFound(null);
-    try {
-      const extracted = await backend.coach.extract(sources.filter((s) => s.text.trim()), draft.name, draft.kind, draft.language);
-      if (kind === 'compare') setFound({ kind, extracted, entries: await backend.coach.diff(draft, extracted) });
-      else {
-        const split = splitForAdding(draft, extracted);
-        setFound({ kind, extracted, fresh: split.fresh.map((m) => ({ ...m, pick: true })), covered: split.covered.map((c) => ({ ...c, pick: false })) });
+  function run(kind: 'add' | 'compare') {
+    const docs = sources.filter((s) => s.text.trim());
+    const snapshot = draft;
+    store.start<Found>({ key, view: 'profiles', targetId: draft.id, label: `Moves for ${draft.name || 'profile'}`, mode: kind }, 'profile-extraction', async (stage) => {
+      stage(`The model is reading ${plural(docs.length, 'source')}`);
+      const extracted = await backend.coach.extract(docs, snapshot.name, snapshot.kind, snapshot.language);
+      if (kind === 'compare') {
+        stage('Comparing with the profile');
+        return { kind, extracted, entries: await backend.coach.diff(snapshot, extracted) };
       }
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(null);
-    }
+      const split = splitForAdding(snapshot, extracted);
+      return { kind, extracted, fresh: split.fresh.map((m) => ({ ...m, pick: true })), covered: split.covered.map((c) => ({ ...c, pick: false })) };
+    });
   }
 
   async function apply() {
@@ -512,8 +537,8 @@ function LearnFromSources({ draft, onApply }: { draft: TasteProfile; onApply(p: 
       const picked = [...found.fresh.filter((m) => m.pick), ...found.covered.filter((c) => c.pick).map((c) => c.incoming)].map(({ pick: _p, ...m }: StyleMove & { pick?: boolean }) => m);
       await onApply(addMoves(draft, found.extracted, picked), empty ? 'extraction' : 'added from sources');
     }
-    setFound(null);
-    setSources([]);
+    store.clear(key);
+    store.setSources(key, []);
   }
 
   const picks = found?.kind === 'add' ? found.fresh.filter((m) => m.pick).length + found.covered.filter((c) => c.pick).length : found?.entries.filter((e) => e.apply).length ?? 0;
@@ -525,16 +550,22 @@ function LearnFromSources({ draft, onApply }: { draft: TasteProfile; onApply(p: 
       </p>
       <SourcesEditor sources={sources} setSources={setSources} />
       <div className="row">
-        <button className="btn primary" disabled={!!busy || !ready} onClick={() => void run('add')}>
-          {busy === 'add' ? 'Extracting… (this can take a minute)' : empty ? 'Extract moves' : 'Add to profile'}
+        <button className="btn primary" disabled={!!busy || !ready} onClick={() => run('add')}>
+          {busy === 'add' ? 'Extracting…' : empty ? 'Extract moves' : 'Add to profile'}
         </button>
         {!empty && (
-          <button className="btn" disabled={!!busy || !ready} onClick={() => void run('compare')}>
+          <button className="btn" disabled={!!busy || !ready} onClick={() => run('compare')}>
             {busy === 'compare' ? 'Extracting…' : 'Re-extract and compare'}
           </button>
         )}
-        {error && <span className="error">{error}</span>}
+        {error && (
+          <>
+            <span className="error">{error}</span>
+            <button className="btn ghost small" onClick={() => store.clear(key)}>Dismiss</button>
+          </>
+        )}
       </div>
+      {job?.status === 'running' && <JobProgress job={job} />}
 
       {found?.kind === 'add' && (
         <>

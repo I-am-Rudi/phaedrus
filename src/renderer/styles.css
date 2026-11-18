@@ -419,3 +419,21 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .issue.flash { animation: flash-text 0.9s ease-out; }
 @keyframes flash-card { from { box-shadow: 0 0 0 2px var(--accent); } to { box-shadow: 0 0 0 2px transparent; } }
 @keyframes flash-text { from { background: color-mix(in srgb, var(--accent) 35%, transparent); } }
+
+/* ---------- background extraction ---------- */
+.job-progress { display: flex; flex-direction: column; gap: 6px; }
+.progress { height: 4px; background: var(--sunk); border-radius: 2px; overflow: hidden; position: relative; }
+.progress i, .chip-bar i { display: block; height: 100%; background: var(--accent); transition: width 1s linear; }
+.progress.indeterminate i, .chip-bar.indeterminate i { width: 30%; position: absolute; animation: job-slide 1.6s ease-in-out infinite; }
+@keyframes job-slide { from { left: -30%; } to { left: 100%; } }
+.jobs { display: flex; gap: 6px; margin-left: auto; padding-left: 10px; flex: none; -webkit-app-region: no-drag; }
+.titlebar-slot:not(:empty) + .jobs { margin-left: 10px; }
+.job-chip { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 3px; padding: 3px 9px; font-size: 12px; color: var(--ink-2); cursor: pointer; max-width: 260px; }
+.job-chip .chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-chip.done { border-color: var(--accent); color: var(--ink); }
+.job-chip.error { border-color: var(--spelling); color: var(--ink); }
+.chip-bar { width: 36px; height: 4px; background: var(--sunk); border-radius: 2px; overflow: hidden; position: relative; flex: none; }
+.chip-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.job-chip.error .chip-dot { background: var(--spelling); }
+.rail button { position: relative; }
+.rail-dot { position: absolute; top: 6px; right: 14px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
