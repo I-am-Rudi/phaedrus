@@ -136,8 +136,9 @@ function fakeSuggestions(paragraph: string, prompt: string): Record<string, unkn
 const fakeLLM: LLM = {
   async complete(req) {
     // Simulated model latency; tests can slow it down via window.__mockDelay.
-    const delay = (globalThis as { __mockDelay?: number }).__mockDelay ?? 900;
-    await new Promise((r) => setTimeout(r, req.prompt.includes('"suggestions"') ? delay : 300));
+    // Extraction and other calls: window.__mockSlowDelay.
+    const g = globalThis as { __mockDelay?: number; __mockSlowDelay?: number };
+    await new Promise((r) => setTimeout(r, req.prompt.includes('"suggestions"') ? (g.__mockDelay ?? 900) : (g.__mockSlowDelay ?? 300)));
     const batch = [...req.prompt.matchAll(/<paragraph id="([^"]+)"[^>]*>([\s\S]*?)<\/paragraph>/g)];
     if (batch.length && req.prompt.includes('"suggestions"')) {
       const all = batch.flatMap(([, id, text]) => {

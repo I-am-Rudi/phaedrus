@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { AskDialog } from './AskDialog';
+import { JobsIndicator, useJobsCloseGuard, useViewHasJobs } from './JobsUi';
 import { applyTheme } from './themes';
 import { useApp, type ViewId } from './state';
 import { CheatSheet, CommandLine, HelpOverlay, useGlobalVim } from './vim/app';
@@ -21,10 +22,12 @@ const LABELS: Record<ViewId, string> = { write: 'Write', profiles: 'Profiles', r
 
 export function App() {
   const { view, go, mock, toast, settings, setTitlebar } = useApp();
+  useJobsCloseGuard();
   useGlobalVim();
   useEffect(() => applyTheme(settings.theme ?? 'system'), [settings.theme]);
   const button = (id: ViewId) => (
     <button key={id} className={view === id ? 'active' : ''} onClick={() => go(id)} title={LABELS[id]}>
+      {(id === 'profiles' || id === 'rules') && <RailJobDot view={id} />}
       <svg viewBox="0 0 24 24" aria-hidden>{ICONS[id]}</svg>
       {LABELS[id]}
     </button>
@@ -35,6 +38,7 @@ export function App() {
       <header className="titlebar">
         <div className="titlebar-lights" aria-hidden />
         <div className="titlebar-slot" ref={setTitlebar} />
+        <JobsIndicator />
       </header>
       <nav className="rail">
         <div className="mark">P</div>
@@ -61,4 +65,8 @@ export function App() {
       </main>
     </div>
   );
+}
+
+function RailJobDot({ view }: { view: 'profiles' | 'rules' }) {
+  return useViewHasJobs(view) ? <span className="rail-dot" title="An extraction is running or ready" /> : null;
 }
